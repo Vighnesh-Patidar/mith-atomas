@@ -248,13 +248,13 @@ The archetype machinery below is implementation flexibility for the eventual N>1
 
 MithAtomas uses a **hybrid archetype ECS**:
 
-- **Hot components** (accessed every tick by multiple systems) are stored in **dense archetype-style arrays**. Components for the same type across all entities with that component are contiguous in memory. Cache-friendly. These are fixed at compile time via a registered set.
+- **Hot components** (accessed every tick by multiple systems) are stored in **dense archetype-style arrays**. Components for the same type across all entities with that component are contiguous in memory. Cache-friendly.
 - **Cold components** (sparse, infrequent access, user-defined) are stored in a **per-entity component map** (`unordered_map<ComponentTypeID, ComponentPtr>`). Flexible. No cache pressure because they're not in the hot path.
 
-The distinction between hot and cold is declared by the component author:
+The hot/cold distinction is a **storage strategy hint** declared by the component author. It is *not* a registration mechanism.
 
 ```cpp
-// Hot — registered at compile time, gets a dense store
+// Hot — gets a dense slot
 struct PositionComponent : mith::HotComponent<PositionComponent> {
     float x, y, z;
 };
@@ -265,6 +265,31 @@ struct MissionTagComponent : mith::ColdComponent<MissionTagComponent> {
     uint8_t     priority;
 };
 ```
+
+**Registration is unified**: built-in and user components both flow through `EntityRegistry::register_component<T>()`, called by the runtime in `World::init()` for the built-in list (§4.4) and by user code before init for extensions. Type IDs remain compile-time hashed strings (§15); registration allocates storage for that ID at runtime.
+
+Every registration carries a **`ComponentOrigin`** tag that the runtime enforces by API surface:
+
+```cpp
+namespace mith {
+
+enum class ComponentOrigin : std::uint8_t {
+    Built_In = 0,   // Registered by the runtime in World::init(). Privileged path.
+    User     = 1,   // Registered by mission/plugin code via register_component<T>().
+};
+
+} // namespace mith
+```
+
+`Built_In` is set by an internal `register_builtin_component<T>()` path that user code cannot reach — there is no public overload of `register_component<T>(Origin)`. This makes the origin tag tamper-resistant within the trusted compute base.
+
+Registration is gated by **`WorldConfig::registration_policy`** (§8). Three levels:
+
+- **`Open`** — registration allowed any time. Test / sim convenience.
+- **`LockAfterInit`** (default) — register before `World::init()`; locked after.
+- **`BuiltInOnly`** — only `Built_In` origin accepted; user `register_component<T>()` calls are hard-rejected. This is the **EW deployment posture** — see §13.5.
+
+Every registration emits a structured `component_registered` event to the observability stream (§14) carrying origin, type name, type ID, and tick — the audit substrate for post-mission review.
 
 ### 4.2 Archetype
 
@@ -290,6 +315,13 @@ class EntityRegistry {
 public:
     EntityID    create_entity();
     void        destroy_entity(EntityID id);
+
+    // Component registration — public path, always tagged ComponentOrigin::User.
+    // Must be called before World::init() under the default LockAfterInit policy.
+    // Rejected under BuiltInOnly policy (§13.5). Type ID collisions error here,
+    // not later — see §15.
+    template<ComponentType T>
+    void        register_component();
 
     // Hot component access — O(1), cache-friendly
     template<HotComponentType T>
@@ -324,7 +356,7 @@ public:
 
 ### 4.4 Core Hot Components (Built-in)
 
-These are registered by the runtime and always available:
+These are registered by the runtime in `World::init()` through the privileged `register_builtin_component<T>()` path (§4.1), giving them `ComponentOrigin::Built_In`. They are *not* exempted from the registration audit trail — registrations of built-ins emit the same `component_registered` event to the observability stream (§14), with `origin: built_in`.
 
 | Component | Fields | Notes |
 |---|---|---|
@@ -760,6 +792,12 @@ public:
 ```cpp
 namespace mith {
 
+enum class ComponentRegistrationPolicy : std::uint8_t {
+    Open           = 0,   // Registration allowed any time. Test/sim only.
+    LockAfterInit  = 1,   // Default — register before init(); locked after.
+    BuiltInOnly    = 2,   // EW posture — user register_component<T>() hard-rejected. See §13.5.
+};
+
 struct WorldConfig {
     uint16_t            swarm_id;
     float               tick_rate_hz     = 20.0f;
@@ -769,6 +807,8 @@ struct WorldConfig {
     bool                enable_flocking      = true;
     bool                enable_task_alloc    = true;
     bool                enable_fault_monitor = true;
+
+    ComponentRegistrationPolicy registration_policy = ComponentRegistrationPolicy::LockAfterInit;
 };
 
 class World {
@@ -998,6 +1038,32 @@ When `health < DEGRADED_THRESHOLD` (default: 40), `FaultMonitorSystem` sets a `D
 
 The runtime has no global coordinator. Each node operates independently. If a subset of the swarm loses comms entirely, both partitions continue operating in their local context. When comms is restored, the `NeighbourTable` converges automatically within one beacon interval.
 
+### 13.5 Adversarial Posture (EW)
+
+For electronic-warfare and other adversarial deployments, the runtime supports a **hardened registration posture** that prevents arbitrary component types from being instantiated at runtime. Combined with §3.3 signed identity, this raises the bar for a hostile actor trying to join or subvert a fleet through anything short of full binary compromise.
+
+| Threat | Defended by |
+|---|---|
+| Hostile node spoofing identity over the air | §3.3 signed mode + application trust policy |
+| Hostile-but-trusted-build plugin slipped into the deployment (supply chain, accidental dependency) | **This section** — `BuiltInOnly` registration policy |
+| Captured node broadcasts our positions using existing components | §3.3 signed mode + verification on receive |
+| Captured binary tampered with at the flash level | **Out of scope for the runtime** — handled by the deployment's secure-boot / flash-integrity layer (planned alongside the firmware work) |
+
+**Hardened deployment recipe:**
+
+1. Custom-build MithAtomas with all mission-specific components compiled in as `Built_In` (via the `MITH_BUILTIN_COMPONENT(...)` CMake hook). These become part of the trusted compute base; the build supply chain is what guarantees their integrity.
+2. Set `WorldConfig::registration_policy = BuiltInOnly`. Any `register_component<T>()` call from user code is rejected before init even runs.
+3. Set `MITH_ENABLE_AUTH=ON` and signed mode (§3.3) — bind identity to keypairs so an attacker on the same medium cannot impersonate a fleet member.
+4. Trace level `INFO` or above so the `component_registered` audit events (§14) are captured for post-mission review.
+
+What this **does not** defend against:
+
+- **Binary tampering on a captured node.** A flash-level modification of the runtime can do anything; runtime policy is moot. Defence-in-depth here is secure-boot, signed firmware, and TPM-attested boot measurements — out of scope for v0.1 and handled at the firmware layer.
+- **Side-channel exfiltration via legitimate components.** If a hostile but trusted-build component is in the `Built_In` set, it can do whatever it wants. The defence is build-pipeline auditing, not runtime enforcement.
+- **Application trust policy.** The runtime authenticates *that the claimed identity is legitimate*; the application decides *whether to act on it*. Allow-lists, attestation, and mission-issued certs live above the runtime.
+
+This section will expand alongside the firmware/flash integrity work in a later release.
+
 ---
 
 ## 14. Observability
@@ -1055,10 +1121,20 @@ Every bounded queue (`ActionQueueComponent`, `CommBufferComponent`, transport TX
 |---|---|
 | `OFF` (default) | Nothing |
 | `WARN` | Fault transitions, dropped messages, validation rejections |
-| `INFO` | System tick boundaries, action validation outcomes |
+| `INFO` | System tick boundaries, action validation outcomes, **`component_registered` audit events** (§4.1 / §13.5) |
 | `DEBUG` | Per-component reads / writes |
 
-Trace output is one JSON object per line on stderr (or a configurable sink). Production deployments stay at `OFF`; CI integration tests use `INFO`; manual debugging uses `DEBUG`. No external logging dependency.
+Trace output is one JSON object per line on stderr (or a configurable sink). Production deployments stay at `OFF`; CI integration tests use `INFO`; manual debugging uses `DEBUG`. EW deployments (§13.5) run at `INFO` so the component-registration audit trail is captured.
+
+The `component_registered` event shape:
+
+```json
+{"event": "component_registered",
+ "origin": "user", "type_name": "MyKalmanState", "type_id": "0x9d2f...",
+ "tick": 0, "wall_time_s": 1.234}
+```
+
+No external logging dependency.
 
 ### 14.5 What this is not
 
@@ -1096,7 +1172,7 @@ The schedule below is dependency-ordered: each tier resolves blockers for the ne
 - [x] **ECS identity model** — **resolved**: one entity per `World`, representing the robot itself. Neighbours stay in `NeighbourTable` (§7.4), not as entities. Parallelism is system-level on the one self entity. See §3.2 / §4.1 / §8. Multi-entity is a v0.5 extension on demand behind a `WorldConfig::multi_entity` flag, not an API break.
 - [x] **Scheduler hazard model** — **resolved**: two-axis hazard graph (components + typed resources). `NeighbourTable`, `TransportTx`, `TransportRx` are first-class `ResourceID`s; user resources register at init. See §5.1 / §5.2 / §5.3.
 - [x] **`ActionExecutorSystem` write set** — **resolved**: split into the **Action Handler Registry** — `ActionValidatorSystem` plus N typed handler systems, each declaring bounded writes visible to the DAG. No tick-wide barrier. See §6.4 / §5.3.
-- [ ] **Hot-component registration** — compile-time set (own the recompile-to-extend cost) or runtime-registerable (own the perf delta). Pick one and update §4.1.
+- [x] **Hot-component registration** — **resolved**: unified runtime registration. CRTP base (`HotComponent<T>` / `ColdComponent<T>`) is a storage hint; built-in and user components share one API. Origin tracked via `ComponentOrigin`; built-ins use a privileged internal path user code cannot reach. `WorldConfig::registration_policy` (Open / LockAfterInit / BuiltInOnly) gates registration — `BuiltInOnly` is the EW lockdown posture (§13.5). Every registration emits a `component_registered` audit event (§14). See §4.1 / §4.3 / §4.4 / §8 / §13.5 / §14.4.
 - [ ] **Determinism scope** — pin sim scheduler to single-threaded, or define schedule capture/replay. Both claims as written conflict (§5.2 vs §9.2).
 - [ ] **Bounded-queue overflow contract** — per queue (`ActionQueueComponent`, `CommBufferComponent`): drop-oldest / drop-newest / fault-trigger.
 - [ ] **Action permission mask** — where it lives, who writes it, how degraded mode mutates it (§6.4, §13.2).
