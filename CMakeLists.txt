@@ -48,7 +48,7 @@ add_library(mith::mith ALIAS mith)
 if(MITH_ENABLE_AUTH)
     target_sources(mith PRIVATE
         third_party/tweetnacl/tweetnacl.c
-        third_party/tweetnacl/randombytes.cpp
+        src/identity/chacha20.cpp       # provides extern "C" randombytes() too
         src/identity/ed25519.cpp
     )
     target_include_directories(mith PRIVATE third_party/tweetnacl)

@@ -22,6 +22,7 @@ add_executable(mith_unit_tests
     unit/test_kinematics_system.cpp
     unit/test_fault_monitor_system.cpp
     unit/test_ed25519.cpp
+    unit/test_chacha20.cpp
 )
 
 target_link_libraries(mith_unit_tests PRIVATE mith::mith)
