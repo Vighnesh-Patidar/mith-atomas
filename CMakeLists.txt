@@ -26,6 +26,7 @@ add_library(mith STATIC
     src/identity/uuid.cpp
     src/identity/hierarchical_id.cpp
     src/core/registry.cpp
+    src/core/scheduler.cpp
 )
 add_library(mith::mith ALIAS mith)
 
