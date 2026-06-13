@@ -4,6 +4,7 @@ add_executable(mith_unit_tests
     unit/test_hierarchical_id.cpp
     unit/test_bounded_queue.cpp
     unit/test_registry.cpp
+    unit/test_builtin_components.cpp
 )
 
 target_link_libraries(mith_unit_tests PRIVATE mith::mith)
