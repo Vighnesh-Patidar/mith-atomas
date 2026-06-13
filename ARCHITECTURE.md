@@ -969,7 +969,9 @@ A richer "capture the parallel schedule, replay it deterministically" mode is on
 
 ### 9.3 Visualiser Hook
 
-The sim harness exposes a `SwarmSnapshot` at each tick — all entity states, neighbour tables, pending actions — serialised to JSON or a binary wire format. A bundled Python script reads this and renders a 2D matplotlib animation. This is not part of the core runtime and has no compile-time dependency.
+The sim harness exposes a `SwarmSnapshot` at each tick — all entity states, neighbour tables, pending actions — serialised to JSON via the core's hand-rolled writer (§14.1). A bundled Python script reads this stream and renders a 2D matplotlib animation. The **Python visualiser imposes no build-time dependency on the C++ core** — Python is downstream of the snapshot output.
+
+The sim harness itself vendors `nlohmann/json` (§11) under `MITH_BUILD_SIM` for snapshot *parsing* (replay, run-diff, scenario replay across saved traces). The core runtime does not depend on it.
 
 ---
 
@@ -1079,12 +1081,13 @@ option(MITH_ENABLE_SERIAL   "Build serial transport"    OFF)
 
 **Dependencies (all vendored or header-only, no external package manager required):**
 
-| Dependency | Version | Use | Vendored |
-|---|---|---|---|
-| `nlohmann/json` | 3.11 | Sim snapshot serialisation | Yes (single header) |
-| `doctest` | 2.4 | Unit testing | Yes (single header) |
-| `ThreadPool` (custom) | — | System scheduler | Internal |
-| `etl` (Embedded Template Library) | optional | Heap-free containers on embedded targets | Optional |
+| Dependency | Version | Scope | Use | Vendored |
+|---|---|---|---|---|
+| *(none)* | — | **Core runtime** | Zero external deps. JSON emission for `dump_state()` and trace output is hand-rolled (§14.1). | — |
+| `nlohmann/json` | 3.11 | Sim + tests (gated by `MITH_BUILD_SIM`) | Snapshot parsing, replay, run-diff | Yes (single header) |
+| `doctest` | 2.4 | Tests only | Unit testing | Yes (single header) |
+| `ThreadPool` (custom) | — | Core runtime | System scheduler under `SchedulerMode::Parallel` (§5.2) | Internal |
+| `etl` (Embedded Template Library) | optional | Future microcontroller targets | Heap-free containers if/when we expand the tier (post-v1.0) | Optional |
 
 No ROS, no Boost, no external comms library required for the core.
 
@@ -1179,6 +1182,8 @@ Without runtime introspection, the scheduler, neighbour table, and action valida
 
 `World::dump_state()` serialises the full local runtime state to JSON: registry contents (including `PermissionMaskComponent` and queue rejection counters, §4.4), neighbour table entries, pending action queues, last-tick scheduler timings. This is the single canonical introspection path — the matplotlib visualiser (§9.3), unit tests, and any future GUI all consume the same snapshot.
 
+**JSON emission is hand-rolled in the core** — a small (~50 LOC) write-only writer covering strings, numbers, booleans, arrays, objects. Emit-only is trivial; the core takes no external JSON dependency (`nlohmann/json` is gated by `MITH_BUILD_SIM`, §11). `dump_state()` allocates (`std::string`) and is intended for explicit debugging calls and per-tick sim snapshots, not the hot tick path — see §15 for the allocation-policy boundary and the platform-tier note.
+
 ```cpp
 namespace mith {
 
@@ -1231,9 +1236,38 @@ These counters are *the* signaling substrate for the `FaultTrigger` policy: `Fau
 | `INFO` | System tick boundaries, action validation outcomes, **`component_registered` audit events** (§4.1 / §13.5) |
 | `DEBUG` | Per-component reads / writes |
 
-Trace output is one JSON object per line on stderr (or a configurable sink). Production deployments stay at `OFF`; CI integration tests use `INFO`; manual debugging uses `DEBUG`. EW deployments (§13.5) run at `INFO` so the component-registration audit trail is captured.
+Production deployments stay at `OFF`; CI integration tests use `INFO`; manual debugging uses `DEBUG`. EW deployments (§13.5) run at `INFO` so the component-registration audit trail is captured.
 
-The `component_registered` event shape:
+**Trace output is pluggable via `TraceSink`.** The runtime assembles each event as `(level, event_name, [key-value fields])` and hands it to a sink. The default sink is `JsonTraceSink` writing one JSON object per line to stderr. Embedded users plug in their own sink (binary frame, logfmt, MAVLink-style telemetry, syslog) without touching runtime code:
+
+```cpp
+namespace mith {
+
+struct TraceField {
+    std::string_view key;
+    enum class Kind : std::uint8_t { Str, I64, U64, F64, Bool } kind;
+    // tagged union — POD, no allocation
+};
+
+class TraceSink {
+public:
+    virtual ~TraceSink() = default;
+    virtual void emit(TraceLevel level,
+                      std::string_view event,
+                      std::span<const TraceField> fields) noexcept = 0;
+};
+
+class JsonTraceSink : public TraceSink { /* hand-rolled JSON line writer, default */ };
+
+// In WorldConfig:
+//   std::unique_ptr<TraceSink> trace_sink;   // default-constructed = JsonTraceSink to stderr
+
+} // namespace mith
+```
+
+The runtime's emit path is allocation-free up to the sink call; the sink itself decides whether to allocate. `JsonTraceSink` does (`std::string` per line); a binary sink can pre-allocate ring buffers and never alloc per event.
+
+Sample `JsonTraceSink` output for the `component_registered` event:
 
 ```json
 {"event": "component_registered",
@@ -1241,7 +1275,7 @@ The `component_registered` event shape:
  "tick": 0, "wall_time_s": 1.234}
 ```
 
-No external logging dependency.
+A binary sink for tight platforms is listed in §16 post-v1.0 — interface lands now so the API doesn't break later. No external logging dependency.
 
 ### 14.5 What this is not
 
@@ -1255,8 +1289,10 @@ Keeping these out of the core preserves the dependency footprint promised in §1
 
 ## 15. Design Constraints & Non-Goals
 
+**Platform tier (v0.1–v1.0):** MithAtomas targets **SoC-class embedded platforms** running Linux — Raspberry Pi 3/4/5, Jetson Nano/Orin, BeagleBone, and similar boards with MB-to-GB-class heap budgets and `glibc`/`musl` standard libraries. This is the realistic deployment tier for swarm robotics: each robot is typically a multi-SoC system anyway (compute + sensor controllers + radio), and the swarm runtime lives on the application-class SoC. **Microcontroller-class targets (STM32, ESP32, sub-512-KB heap) are explicitly out of scope through v1.0.** ETL integration (§16 post-v1.0) is the starting point if/when they become a requirement; the `TraceSink` interface (§14.4) is already shaped to allow a binary sink without API changes.
+
 **Constraints:**
-- No dynamic memory allocation in hot path systems after init. All component stores pre-allocate.
+- No dynamic memory allocation in hot path systems after init. All component stores pre-allocate. Observability paths (`dump_state()`, `JsonTraceSink::emit`) are *not* hot path and may allocate.
 - No exceptions in the runtime core. Error returns via `std::optional` or result types.
 - No RTTI in the component system. Type IDs are compile-time hashed strings.
 - `ActionProvider::evaluate()` must be non-blocking. The scheduler will not protect against a blocking provider.
@@ -1284,7 +1320,7 @@ The schedule below is dependency-ordered: each tier resolves blockers for the ne
 - [x] **Bounded-queue overflow contract** — **resolved**: `BoundedQueue<T, N, OverflowPolicy>` template with three compile-time policies (`DropOldest`, `DropNewest`, `FaultTrigger`). Built-ins: `ActionQueueComponent` → `DropNewest` (protect validated intent), `CommBufferComponent` → `DropOldest` (network bursts, stale evicted). `FaultTrigger` integrates with `FaultMonitorSystem` via §14.3 counter deltas — no separate signaling channel. See §4.5 / §4.4 / §7.5 / §13.1 / §14.3.
 - [x] **Action permission mask** — **resolved**: `PermissionMaskComponent` (uint32 builtin bitmask + bool user-action flag) on the self entity. Written only by `FaultMonitorSystem`; read by `ActionValidatorSystem`. Hazard graph orders Fault → Validator naturally. Degraded mode (§13.2) restricts to `IDLE|REGROUP`, no user actions, with hysteresis on recovery. Rejections increment a counter on `ActionQueueComponent` and emit `WARN` traces; rejections do NOT decrement health (avoids feedback loop). See §4.4 / §5.3 / §6.4 / §13.1 / §13.2 / §14.1.
 - [x] **v0.1 scope coherence** — **resolved**: `BeaconSystem` + `NeighbourTable` stay in v0.1 (without them §1's "swarm" claim is unfulfilled and `SimTransport` has nothing to do). Flocking demo right-sized from 50 → 10 sim robots. Hardware transport, identity authentication, and active fault response defer to v0.2; the *architecture* of those mechanisms ships in v0.1 with dormant hooks. See v0.1 / Dormant in v0.1 / v0.2 below.
-- [ ] **Visualiser dependency** — gate `nlohmann/json` behind `MITH_BUILD_SIM`; drop the "no compile-time dependency" claim in §9.3 or scope it to the core library only.
+- [x] **Visualiser dependency** — **resolved**: core hand-rolls JSON emission (~50 LOC writer) for `dump_state()` and the default `JsonTraceSink` — zero external runtime deps. `nlohmann/json` gated behind `MITH_BUILD_SIM` for sim + tests only (snapshot parsing, run-diff). Trace output is pluggable via a `TraceSink` interface so embedded users can drop in binary / logfmt / MAVLink sinks without API changes. §15 adds the explicit platform tier — SoC-class (Pi/Jetson/BeagleBone), not microcontrollers, through v1.0. See §9.3 / §11 / §14.1 / §14.4 / §15.
 
 ### v0.1 — Core Runtime (current target)
 
@@ -1366,7 +1402,8 @@ Single placeholder tier — expanded only if a concrete research use case materi
 - [ ] Python bindings (pybind11)
 - [ ] ROS 2 transport plugin
 - [ ] WebSocket transport (for browser-based visualiser)
-- [ ] ETL integration for heap-free embedded targets
+- [ ] ETL integration for heap-free embedded targets — paired with the microcontroller-tier expansion (§15)
+- [ ] **Binary `TraceSink` implementation** — for microcontroller-tier targets where `JsonTraceSink`'s `std::string` allocations are too expensive. Pre-allocated ring buffer, fixed-size frames, no per-event alloc. Interface already shipped in v0.1 (§14.4); only the impl lands here.
 - [ ] **Schedule capture/replay** — capture the parallel-mode schedule (system order + thread assignments) into an artifact; replay scheduler honours it for deterministic re-runs of production traces. Resolves the Pre-v0.1 #5 deferral if a real need surfaces (§9.2).
 
 ---
