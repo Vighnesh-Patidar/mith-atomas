@@ -2,6 +2,7 @@ add_executable(mith_unit_tests
     unit/test_main.cpp
     unit/test_uuid.cpp
     unit/test_hierarchical_id.cpp
+    unit/test_bounded_queue.cpp
 )
 
 target_link_libraries(mith_unit_tests PRIVATE mith::mith)
