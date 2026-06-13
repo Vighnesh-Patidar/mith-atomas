@@ -46,6 +46,9 @@
 
 namespace mith {
 
+class TraceSink;   // fwd — defined in trace_sink.h. Registry only forward-
+                   // declares it; only registry.cpp pulls the full header.
+
 enum class ComponentRegistrationPolicy : std::uint8_t {
     Open           = 0,
     LockAfterInit  = 1,
@@ -206,6 +209,18 @@ public:
 
     ComponentRegistrationPolicy policy() const noexcept;
 
+    // Audit / observability sink (§4.1, §14.4). Nullable; default is unset
+    // (no emission). When set, every successful registration — both User
+    // and Built_In — emits a `component_registered` event at TraceLevel::Info
+    // with fields: origin, type_name, type_id (hex), tick (0 — registration
+    // is pre-init).
+    //
+    // Failed registrations (AlreadyRegistered, TypeIdCollision, policy
+    // rejections) do NOT emit. Lifecycle: caller owns the sink and must
+    // ensure it outlives this registry.
+    void       set_trace_sink(TraceSink* sink) noexcept;
+    TraceSink* trace_sink() const noexcept;
+
 private:
     template<typename T>
     RegistrationStatus register_impl(ComponentOrigin origin) {
@@ -235,12 +250,20 @@ private:
         }
 
         stores_.emplace(id, std::make_unique<detail::ComponentStore<T>>(origin));
+        emit_registered_event_(origin, type_name<T>(), id);
         return RegistrationStatus::Ok;
     }
+
+    // Implemented in registry.cpp so the registry header doesn't have to
+    // pull mith/core/trace_sink.h. Safe to call with sink_ == nullptr (no-op).
+    void emit_registered_event_(ComponentOrigin   origin,
+                                std::string_view  type_name_,
+                                ComponentTypeID   type_id) noexcept;
 
     std::unordered_map<ComponentTypeID, std::unique_ptr<detail::ComponentStoreBase>> stores_;
     ComponentRegistrationPolicy policy_;
     bool                        locked_ = false;
+    TraceSink*                  sink_   = nullptr;
 };
 
 } // namespace mith
