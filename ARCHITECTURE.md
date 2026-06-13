@@ -432,6 +432,13 @@ At each tick:
 
 This is a standard parallel task DAG, equivalent to a topological sort with concurrent execution at each level.
 
+**Two execution modes** are supported, selectable per `World` via `WorldConfig::scheduler_mode` (§8):
+
+- **`Parallel`** (default in production) — thread pool dispatches independent systems concurrently per the description above. Maximum throughput. **Determinism is not guaranteed** between runs: even with a perfect hazard graph, thread-completion ordering, FP-reduction order on different cores, and CPU contention all leak non-determinism into shared state.
+- **`Sequential`** (default in sim, see §9.1) — single-threaded execution in a topologically-sorted order with stable tie-breaking (lexicographic on `SystemDescriptor::name`). Slower per tick, but **fully deterministic given fixed inputs** (RNG seeds, transport feed, beacon arrivals). Re-running with the same inputs produces bit-identical traces.
+
+The hazard graph is the same in both modes. The difference is whether the scheduler exploits the parallel opportunities the graph permits.
+
 ```cpp
 namespace mith {
 
@@ -444,13 +451,13 @@ public:
 private:
     std::vector<std::unique_ptr<System>>    systems_;
     DAG<SystemNode>                         dep_graph_;
-    ThreadPool                              thread_pool_;
+    ThreadPool                              thread_pool_;   // Unused in Sequential mode
 };
 
 } // namespace mith
 ```
 
-**Thread pool sizing:** Defaults to `std::thread::hardware_concurrency() - 1`. On a single-core embedded target, degrades gracefully to sequential execution.
+**Thread pool sizing:** Defaults to `std::thread::hardware_concurrency() - 1` in `Parallel` mode. On a single-core embedded target, degrades gracefully to sequential execution. `Sequential` mode ignores `thread_pool_size`.
 
 ### 5.3 Built-in Systems
 
@@ -798,17 +805,24 @@ enum class ComponentRegistrationPolicy : std::uint8_t {
     BuiltInOnly    = 2,   // EW posture — user register_component<T>() hard-rejected. See §13.5.
 };
 
+enum class SchedulerMode : std::uint8_t {
+    Parallel    = 0,   // Default in production. Thread pool. Determinism NOT guaranteed (§5.2).
+    Sequential  = 1,   // Default in sim (§9.1). Single-threaded topo order with stable
+                       // tie-breaking. Fully deterministic given fixed inputs.
+};
+
 struct WorldConfig {
     uint16_t            swarm_id;
     float               tick_rate_hz     = 20.0f;
     float               beacon_rate_hz   = 10.0f;
     float               neighbour_timeout_s = 0.5f;
-    size_t              thread_pool_size = 0;    // 0 = hardware_concurrency - 1
+    size_t              thread_pool_size = 0;    // 0 = hardware_concurrency - 1 (Parallel only)
     bool                enable_flocking      = true;
     bool                enable_task_alloc    = true;
     bool                enable_fault_monitor = true;
 
     ComponentRegistrationPolicy registration_policy = ComponentRegistrationPolicy::LockAfterInit;
+    SchedulerMode               scheduler_mode      = SchedulerMode::Parallel;
 };
 
 class World {
@@ -853,6 +867,8 @@ The sim harness allows full swarm scenarios to run in-process with no hardware. 
 
 `SimTransport` is a loopback transport backed by an in-process message bus. Multiple `World` instances (each representing one robot) share a `SimBus`. The bus applies configurable latency, packet loss, and range-limiting (robots beyond `comm_range_m` don't receive each other's packets).
 
+`SimBus::make_world_config()` produces a `WorldConfig` with `scheduler_mode = SchedulerMode::Sequential` set by default (§8). This is what makes the sim deterministic — without it, the thread pool reshuffles system-completion order across runs and `SimClock` (§9.2) loses its determinism guarantee. Users running perf benchmarks in sim can override to `Parallel` and accept non-determinism.
+
 ```cpp
 namespace mith::sim {
 
@@ -874,7 +890,13 @@ public:
 
 ### 9.2 SimClock
 
-A deterministic virtual clock. All `World` instances in a sim share one clock. Tick ordering is round-robin by default, configurable.
+A virtual clock advancing in fixed `delta_time_s` increments. All `World` instances in a sim share one clock. Tick ordering across Worlds is round-robin by default, configurable.
+
+**Determinism contract:** `SimClock` produces bit-identical traces across runs **only when every participating `World` uses `SchedulerMode::Sequential`** (§5.2). This is the `SimBus` default (§9.1). Mixing modes — one World in `Sequential` and another in `Parallel` — gives partial determinism (per-World traces reproducible only in isolation) and is supported but not recommended.
+
+Determinism also requires the caller to control all other input sources: RNG seeds (`UUID::generate()` in unsigned mode, future Ed25519 keygen in v0.2), transport feed (sim-replayable), and any user-supplied `ActionProvider` that has its own randomness. The runtime commits to *scheduler* determinism; *input* determinism is the caller's responsibility.
+
+A richer "capture the parallel schedule, replay it deterministically" mode is on the post-v1.0 roadmap (§16) for advanced debugging of production-mode behaviour; v0.1 does not include it.
 
 ### 9.3 Visualiser Hook
 
@@ -1173,7 +1195,7 @@ The schedule below is dependency-ordered: each tier resolves blockers for the ne
 - [x] **Scheduler hazard model** — **resolved**: two-axis hazard graph (components + typed resources). `NeighbourTable`, `TransportTx`, `TransportRx` are first-class `ResourceID`s; user resources register at init. See §5.1 / §5.2 / §5.3.
 - [x] **`ActionExecutorSystem` write set** — **resolved**: split into the **Action Handler Registry** — `ActionValidatorSystem` plus N typed handler systems, each declaring bounded writes visible to the DAG. No tick-wide barrier. See §6.4 / §5.3.
 - [x] **Hot-component registration** — **resolved**: unified runtime registration. CRTP base (`HotComponent<T>` / `ColdComponent<T>`) is a storage hint; built-in and user components share one API. Origin tracked via `ComponentOrigin`; built-ins use a privileged internal path user code cannot reach. `WorldConfig::registration_policy` (Open / LockAfterInit / BuiltInOnly) gates registration — `BuiltInOnly` is the EW lockdown posture (§13.5). Every registration emits a `component_registered` audit event (§14). See §4.1 / §4.3 / §4.4 / §8 / §13.5 / §14.4.
-- [ ] **Determinism scope** — pin sim scheduler to single-threaded, or define schedule capture/replay. Both claims as written conflict (§5.2 vs §9.2).
+- [x] **Determinism scope** — **resolved**: two scheduler modes (`Parallel` / `Sequential`) selectable per `World` via `WorldConfig::scheduler_mode`. `Parallel` is the production default and makes no determinism promise; `Sequential` is the sim default (`SimBus` sets it) and is fully deterministic given fixed inputs. Schedule capture/replay for parallel-mode determinism is on the post-v1.0 roadmap. See §5.2 / §8 / §9.1 / §9.2.
 - [ ] **Bounded-queue overflow contract** — per queue (`ActionQueueComponent`, `CommBufferComponent`): drop-oldest / drop-newest / fault-trigger.
 - [ ] **Action permission mask** — where it lives, who writes it, how degraded mode mutates it (§6.4, §13.2).
 - [ ] **v0.1 scope coherence** — pull `BeaconSystem` + `NeighbourTable` into v0.1 (the flocking demo depends on them), or push the flocking demo to v0.2. Decide here.
@@ -1244,6 +1266,7 @@ Single placeholder tier — expanded only if a concrete research use case materi
 - [ ] ROS 2 transport plugin
 - [ ] WebSocket transport (for browser-based visualiser)
 - [ ] ETL integration for heap-free embedded targets
+- [ ] **Schedule capture/replay** — capture the parallel-mode schedule (system order + thread assignments) into an artifact; replay scheduler honours it for deterministic re-runs of production traces. Resolves the Pre-v0.1 #5 deferral if a real need surfaces (§9.2).
 
 ---
 
