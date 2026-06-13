@@ -29,7 +29,12 @@ add_library(mith STATIC
     src/core/scheduler.cpp
     src/core/json_writer.cpp
     src/core/trace_sink.cpp
+    src/core/world.cpp
 )
+
+# World::run() uses std::this_thread::sleep_until → needs pthreads on Linux.
+find_package(Threads REQUIRED)
+target_link_libraries(mith PUBLIC Threads::Threads)
 add_library(mith::mith ALIAS mith)
 
 target_include_directories(mith PUBLIC

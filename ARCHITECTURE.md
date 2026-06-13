@@ -916,7 +916,7 @@ public:
     // Runtime control
     void        init();
     void        tick();             // Single tick — call from your control loop
-    void        run(bool& stop_flag); // Blocking loop at configured tick_rate_hz
+    void        run(std::atomic<bool>& stop_flag); // Blocking loop at configured tick_rate_hz
 
     EntityRegistry&  registry();
     NeighbourTable&  neighbour_table();

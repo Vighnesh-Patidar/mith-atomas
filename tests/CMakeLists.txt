@@ -11,6 +11,7 @@ add_executable(mith_unit_tests
     unit/test_view_and_snapshot.cpp
     unit/test_action.cpp
     unit/test_message.cpp
+    unit/test_world.cpp
 )
 
 target_link_libraries(mith_unit_tests PRIVATE mith::mith)
