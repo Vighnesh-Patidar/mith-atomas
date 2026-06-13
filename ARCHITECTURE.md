@@ -1283,37 +1283,53 @@ The schedule below is dependency-ordered: each tier resolves blockers for the ne
 - [x] **Determinism scope** — **resolved**: two scheduler modes (`Parallel` / `Sequential`) selectable per `World` via `WorldConfig::scheduler_mode`. `Parallel` is the production default and makes no determinism promise; `Sequential` is the sim default (`SimBus` sets it) and is fully deterministic given fixed inputs. Schedule capture/replay for parallel-mode determinism is on the post-v1.0 roadmap. See §5.2 / §8 / §9.1 / §9.2.
 - [x] **Bounded-queue overflow contract** — **resolved**: `BoundedQueue<T, N, OverflowPolicy>` template with three compile-time policies (`DropOldest`, `DropNewest`, `FaultTrigger`). Built-ins: `ActionQueueComponent` → `DropNewest` (protect validated intent), `CommBufferComponent` → `DropOldest` (network bursts, stale evicted). `FaultTrigger` integrates with `FaultMonitorSystem` via §14.3 counter deltas — no separate signaling channel. See §4.5 / §4.4 / §7.5 / §13.1 / §14.3.
 - [x] **Action permission mask** — **resolved**: `PermissionMaskComponent` (uint32 builtin bitmask + bool user-action flag) on the self entity. Written only by `FaultMonitorSystem`; read by `ActionValidatorSystem`. Hazard graph orders Fault → Validator naturally. Degraded mode (§13.2) restricts to `IDLE|REGROUP`, no user actions, with hysteresis on recovery. Rejections increment a counter on `ActionQueueComponent` and emit `WARN` traces; rejections do NOT decrement health (avoids feedback loop). See §4.4 / §5.3 / §6.4 / §13.1 / §13.2 / §14.1.
-- [ ] **v0.1 scope coherence** — pull `BeaconSystem` + `NeighbourTable` into v0.1 (the flocking demo depends on them), or push the flocking demo to v0.2. Decide here.
+- [x] **v0.1 scope coherence** — **resolved**: `BeaconSystem` + `NeighbourTable` stay in v0.1 (without them §1's "swarm" claim is unfulfilled and `SimTransport` has nothing to do). Flocking demo right-sized from 50 → 10 sim robots. Hardware transport, identity authentication, and active fault response defer to v0.2; the *architecture* of those mechanisms ships in v0.1 with dormant hooks. See v0.1 / Dormant in v0.1 / v0.2 below.
 - [ ] **Visualiser dependency** — gate `nlohmann/json` behind `MITH_BUILD_SIM`; drop the "no compile-time dependency" claim in §9.3 or scope it to the core library only.
 
 ### v0.1 — Core Runtime (current target)
-- [ ] EntityRegistry with hybrid archetype ECS
-- [ ] SystemScheduler with async DAG execution (per pre-v0.1 hazard model)
-- [ ] `mith::UUID` + `mith::HierarchicalID` (unsigned identity, §3.1)
+
+Architecture per Pre-v0.1 #1–#7. Inter-robot interaction lands through `BeaconSystem` + `SimTransport`; the *active* fault response (degraded-mode mask transitions, network fault detection, identity rotation) defers to v0.2 with dormant hooks already in place — see "Dormant in v0.1" below.
+
+- [x] `mith::UUID` + `mith::HierarchicalID` (unsigned identity, §3.1)
 - [ ] `IdentityKey` data type + `IdentityVerifier` interface with no-op default (§3.3) — Ed25519 impl deferred to v0.2
 - [ ] `IdentityRotationPolicy` enum + `World::rotate_identity()` API stub (§3.4) — policy enforcement deferred to v0.2
-- [ ] ActionProvider interface + ActionExecutorSystem (per pre-v0.1 write-set decision)
-- [ ] Built-in hot components (Position, Velocity, Health, Role, BehaviourState, ActionQueue, CommBuffer)
-- [ ] SimTransport + SimBus + SimClock
-- [ ] FlockingSystem (Reynolds rules)
-- [ ] `BeaconSystem` + `NeighbourTable` *(if pre-v0.1 resolved scope this way)*
-- [ ] Flocking demo (50 simulated robots, matplotlib visualiser)
-- [ ] Observability primitives — `World::dump_state()`, `SystemScheduler::last_tick_timings()`, queue counters, `trace_level` (see §14)
-- [ ] Unit tests for registry, scheduler, neighbour table (leveraging observability primitives for assertions)
+- [ ] `BoundedQueue<T, N, Policy>` template + drop / overflow counters (§4.5)
+- [ ] `EntityRegistry` + unified `register_component<T>()` machinery; `ComponentOrigin` + `ComponentRegistrationPolicy` enforcement (§4.1, §4.3, §13.5)
+- [ ] Built-in hot components per §4.4 — Identity, Position, Velocity, Orientation, Health, Role, BehaviourState, ActionQueue, CommBuffer, **PermissionMask**
+- [ ] `SystemDescriptor` (two-axis: components + resources, §5.1) + `SystemScheduler` — both `Sequential` and `Parallel` modes (§5.2)
+- [ ] `ActionProvider` + `ActionValidatorSystem` + built-in action handlers (Move, Transmit, Idle / Hover) per §6.4
+- [ ] `BeaconSystem` + `NeighbourTable` + `StateVector` (§7.2, §7.4)
+- [ ] `SimTransport` + `SimBus` + `SimClock` (§9); `SimBus::make_world_config()` defaults to `SchedulerMode::Sequential`
+- [ ] `FlockingSystem` (Reynolds rules: separation, alignment, cohesion)
+- [ ] **Flocking demo — 10 simulated robots, matplotlib visualiser** (§9.3)
+- [ ] Observability primitives — `World::dump_state()`, `SystemScheduler::last_tick_timings()`, queue counters, `trace_level` with `component_registered` / `action_rejected` / `queue_overflow` events (§14)
+- [ ] Unit + integration tests (registry, scheduler, neighbour table, bounded queues, permission mask, flocking convergence — leveraging observability primitives for assertions)
 - [ ] CMake install target
+
+### Dormant in v0.1 (activated in v0.2)
+
+Several Pre-v0.1 resolutions ship their architecture in v0.1 but their *active code path* in v0.2. The hooks are in place; nothing flips them yet. This is intentional — v0.1 ships the full architectural surface so the fault response in v0.2 plugs in without API changes.
+
+| Mechanism | v0.1 state | v0.2 activation |
+|---|---|---|
+| `HealthComponent` decrement on queue overflow / fault | Counters observable in `dump_state()` (§14.1, §14.3) | `FaultMonitorSystem` reads deltas, decrements health per event |
+| Degraded-mode mask transition (§13.2) | `PermissionMaskComponent` honoured; defaults fully permissive | `FaultMonitorSystem` snapshots + writes restricted mask on health drop, with hysteresis |
+| Identity rotation (§3.4) | Enum + `World::rotate_identity()` stub; `Permanent` is the only working policy | `PER_MISSION` / `PERIODIC` / `EVENT_DRIVEN` impls + `IdentityCertificate` chain in signed mode |
+| Cryptographic identity (§3.3) | `IdentityKey` / `IdentityVerifier` types exist; default verifier is a no-op | Vendored Ed25519 + ChaCha20 CSPRNG behind `MITH_ENABLE_AUTH` |
+| Action-rejection trace events (§6.4) | `WARN` event emitted whenever the mask rejects | Same path, now exercised by degraded-mode transitions |
 
 ### v0.2 — Distributed Bootstrap, Channel Separation & Cryptographic Identity
 
-Must precede any honest multi-robot claim — the current init path in §3.1 has a hidden coordinator, and unsigned identity is spoofable on any shared channel.
+Must precede any honest multi-robot claim — the current init path in §3.1 has a hidden coordinator, and unsigned identity is spoofable on any shared channel. **This tier also activates the v0.1 dormant mechanisms** ("Dormant in v0.1" above) — `FaultMonitorSystem` lands here and turns the architecturally-defined fault response into real behaviour.
 
 - [ ] **Discovery / bootstrap protocol** — how robots acquire `SwarmID` and find peers without a mission controller. Resolves the §0 ↔ §3.1 contradiction.
 - [ ] **Channel-aware transport** — split `TransportLayer` into beacon + message transports, or define a multiplexing contract. Lets beacons ride lossy broadcast media while messages use reliable links.
 - [ ] **Cryptographic identity (signed mode)** (§3.3) — vendored Ed25519 (libsodium or hand-rolled), vendored ChaCha20 CSPRNG (replaces `std::random_device` dependency for entropy), `IdentityVerifier` Ed25519 impl, signing hook on `BeaconSystem` outbound, verification on inbound. Opt-in via `MITH_ENABLE_AUTH`.
 - [ ] **Identity rotation** (§3.4) — implement `PER_MISSION`, `PERIODIC`, `EVENT_DRIVEN` policies. `IdentityCertificate` chain in signed mode; `NeighbourTable` correlates old→new across rotation.
+- [ ] **`FaultMonitorSystem` + degraded mode** — activates §13.1 health-decrement-on-overflow, §13.2 mask transitions with hysteresis, missed-beacon detection
 - [ ] UDPMulticastTransport
-- [ ] FaultMonitorSystem + degraded mode
 - [ ] TaskAllocSystem (threshold-based, pre-partition-merge)
-- [ ] Integration test: fault injection in sim
+- [ ] Integration test: fault injection in sim (exercises the now-active dormant pathways)
 - [ ] Integration test: spoofing attempt rejected in signed mode
 
 ### v0.3 — Time & Space
