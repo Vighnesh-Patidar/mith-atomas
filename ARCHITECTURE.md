@@ -367,8 +367,68 @@ These are registered by the runtime in `World::init()` through the privileged `r
 | `HealthComponent` | `uint8_t value` | 0–100, managed by FaultMonitorSystem |
 | `RoleComponent` | `RoleID role` | Current swarm role (worker, scout, relay...) |
 | `BehaviourStateComponent` | `StateID state` | Current state, used by ActionProvider |
-| `ActionQueueComponent` | `RingBuffer<Action, 8>` | Pending actions |
-| `CommBufferComponent` | `RingBuffer<Message, 16>` | Inbound messages |
+| `ActionQueueComponent` | `BoundedQueue<Action, 8, DropNewest>` + rejection counters | Pending actions. Overflow keeps in-flight intent and drops new (§4.5). Permission rejections counted per §6.4. |
+| `CommBufferComponent` | `BoundedQueue<Message, 16, DropOldest>` | Inbound messages. Overflow evicts stale for fresh (§4.5). |
+| `PermissionMaskComponent` | `uint32_t allowed_builtins` + `bool allow_user_actions` | Gates which `ActionTypeID`s `ActionValidatorSystem` accepts. Written by `FaultMonitorSystem` (§13.2); read by `ActionValidatorSystem`. Default = fully permissive. |
+
+### 4.5 Bounded Queues
+
+Every bounded queue in the runtime — built-in or user — declares its overflow behaviour as part of its type. There is no global policy and no "what should I do?" branch at the call site. The policy is a template parameter; `push()` is branchless on the hot path.
+
+```cpp
+namespace mith {
+
+enum class OverflowPolicy : std::uint8_t {
+    DropOldest    = 0,   // FIFO eviction. Newest survives; oldest evicted to make room.
+                         // Use for transient/observational streams (e.g. inbound beacons,
+                         // outbound state vectors) where staleness > loss.
+    DropNewest    = 1,   // FIFO reject. A full queue refuses new items.
+                         // Use when in-flight items must complete and overflow signals
+                         // overload (e.g. queued actions whose intent was already validated).
+    FaultTrigger  = 2,   // DropNewest + raise an overflow fault to FaultMonitorSystem (§13.1).
+                         // Use for critical user queues where any drop is a fault condition.
+};
+
+template<typename T, std::size_t N, OverflowPolicy Policy>
+class BoundedQueue {
+public:
+    // Returns true if accepted, false on drop. Never blocks, never allocates,
+    // never throws (per §15 constraints).
+    bool                push(T&& item) noexcept;
+
+    std::optional<T>    pop() noexcept;
+
+    std::size_t         size() const noexcept;
+    constexpr std::size_t capacity() const noexcept { return N; }
+
+    // §14.3 observability — exposed via dump_state() and assert-able in tests.
+    std::uint32_t       dropped_count() const noexcept;
+    std::uint32_t       overflow_events() const noexcept;
+};
+
+} // namespace mith
+```
+
+`dropped_count` counts individual items lost; `overflow_events` counts the number of distinct overflow occurrences (one event may drop multiple items in `DropOldest` if a burst arrives at a full queue). Both are exposed by `dump_state()` (§14.1) and rendered into the §14.4 trace stream.
+
+**Built-in queue policies** (referenced from §4.4):
+
+| Queue | Capacity | Policy | Rationale |
+|---|---|---|---|
+| `ActionQueueComponent::queue` | 8 | `DropNewest` | Already-queued actions were validated by `ActionValidatorSystem` (§5.3, §6.4). Losing new pushes and surfacing the count is preferable to evicting in-flight intent. |
+| `CommBufferComponent::queue` | 16 | `DropOldest` | Network bursts are expected: 16 slots × 50 neighbours × 100 Hz beacon = ~3 ms to fill. Old messages are stale; transport-level retry handles critical traffic. |
+| Transport TX (per impl, §7.5) | impl-defined | `DropOldest` recommended | State vectors are observational; latest supersedes. Custom transports declare their own. |
+
+**`FaultTrigger` mechanics.** When a `BoundedQueue<..., FaultTrigger>` overflows:
+
+1. `push()` returns `false`, increments `dropped_count` and `overflow_events`.
+2. `FaultMonitorSystem` (§13.1) reads the counter deltas on its next tick — the §14.3 counters *are* the signal; there is no global side-channel.
+3. `FaultMonitorSystem` decrements `HealthComponent::value` and emits a `WARN`-level trace (§14.4): `{"event": "queue_overflow", "queue": "<component_name>", "dropped": N}`.
+4. If health crosses `DEGRADED_THRESHOLD`, the normal §13.2 degraded-mode response applies.
+
+This makes overflow a first-class fault condition without inventing a new signaling mechanism. Under `Sequential` scheduler mode (§5.2) the overflow-to-detection ordering is deterministic; under `Parallel` it is bounded by one `FaultMonitorSystem` tick.
+
+User queues that need a policy not covered by the three above (e.g. blocking push, custom eviction) should wrap their own ring buffer rather than extend the enum — the three policies cover all cases the runtime promises to integrate with the fault path.
 
 ---
 
@@ -470,8 +530,8 @@ Reads / writes split into **components** (C:) and **resources** (R:) per the two
 | `BeaconSystem` | C: Identity, Position, Velocity, Health, Role · R: `TransportRx` | C: CommBuffer (outbound) · R: `NeighbourTable`, `TransportTx` | Broadcasts StateVector; processes incoming beacons into NeighbourTable |
 | `FlockingSystem` | C: Position, Velocity · R: `NeighbourTable` | C: Velocity | Reynolds rules: separation, alignment, cohesion |
 | `TaskAllocSystem` | C: Role, BehaviourState · R: `NeighbourTable` | C: Role | Distributed task allocation via auction or threshold |
-| `FaultMonitorSystem` | C: Health, CommBuffer | C: Health, BehaviourState | Detects comm loss, hardware faults; triggers degraded-mode |
-| `ActionValidatorSystem` | C: ActionQueue, permission state | C: ActionQueue (marks rejected) | Single barrier before action handlers — rejects actions violating permission masks (§6.4, §13.2) |
+| `FaultMonitorSystem` | C: Health, CommBuffer, ActionQueue (counters) | C: Health, BehaviourState, PermissionMask | Detects comm loss, hardware faults, queue overflows (§4.5); on degradation, restricts PermissionMask per §13.2 |
+| `ActionValidatorSystem` | C: ActionQueue, PermissionMask | C: ActionQueue (marks rejected, increments counter) | Single barrier before action handlers — rejects actions disallowed by PermissionMaskComponent (§6.4, §13.2) |
 | `MoveActionHandler` | C: ActionQueue | C: Velocity | Drains MOVE actions, updates velocity |
 | `TransmitActionHandler` | C: ActionQueue | R: `TransportTx` | Drains TRANSMIT actions, enqueues `Message` for outbound transport |
 | `<user handler>` | C: ActionQueue + user-declared | user-declared bounded set | Registered via `World::register_action_handler<H>(action_type)` |
@@ -640,7 +700,14 @@ Earlier drafts had a single `ActionExecutorSystem` that declared "writes (all wr
 
 Action execution becomes a small pipeline of regular Systems (visible in §5.3's table):
 
-1. **`ActionValidatorSystem`** runs once. Reads `ActionQueueComponent` and the permission mask (configurable per entity, used by degraded mode — §13.2). Marks rejected actions in-place; does not dispatch.
+1. **`ActionValidatorSystem`** runs once. Reads `ActionQueueComponent` and `PermissionMaskComponent` (§4.4, §13.2). For each pending action, checks `mask.allows(action.type)`. Rejected actions are marked in-place (the handlers skip them) and increment a `permission_rejections_total` counter on `ActionQueueComponent` (assert-able in tests via `dump_state()`, §14.1). A `WARN`-level trace event is emitted (§14.4):
+
+    ```json
+    {"event": "action_rejected", "action_type": "MOVE",
+     "reason": "permission_mask", "current_state": "DEGRADED", "tick": 1234}
+    ```
+
+    Rejections do **not** decrement `HealthComponent` — that would create a positive-feedback loop with degraded mode. Applications wanting harsher behaviour can read the counter and escalate themselves.
 2. **Action handler systems** run concurrently. Each handler is a `System` registered for one `ActionTypeID`. It reads `ActionQueueComponent`, drains the actions matching its type that survived validation, and applies its declared writes. Handlers writing disjoint components/resources run in parallel.
 
 Built-in handlers ship with the runtime:
@@ -769,6 +836,8 @@ public:
 ### 7.5 TransportLayer Interface
 
 All comms go through a pluggable transport. Implementations provided: `UDPMulticastTransport`, `SerialTransport`, `SimTransport`.
+
+Each transport owns its own outbound TX queues and must declare an `OverflowPolicy` (§4.5) per channel. **`DropOldest` is the recommended default** for state-vector traffic (latest supersedes; loss is acceptable). Reliable-channel transports may pair `DropNewest` or `FaultTrigger` with an application-level ack/retry. The chosen policy is documented in the transport's header and surfaces in `dump_state()` (§14.1).
 
 ```cpp
 namespace mith {
@@ -1046,11 +1115,25 @@ Fault tolerance is first-class, not an afterthought.
 `HealthComponent::value` (0–100) is managed by `FaultMonitorSystem`. It decrements on:
 - Missed beacon threshold exceeded (comm degradation)
 - Hardware sensor timeout (user-reported via `FaultMonitorSystem::report_fault()`)
-- ActionExecutorSystem permission violations (entity attempting writes beyond its mask)
+- Bounded-queue overflow under `FaultTrigger` policy — `FaultMonitorSystem` reads `BoundedQueue::overflow_events` deltas (§4.5) and decrements health per event.
+
+Action rejections by `ActionValidatorSystem` (§6.4) do **not** decrement health by design — see §6.4 for the rationale.
 
 ### 13.2 Degraded Mode
 
-When `health < DEGRADED_THRESHOLD` (default: 40), `FaultMonitorSystem` sets a `DEGRADED` state on `BehaviourStateComponent`. `ActionExecutorSystem` restricts the permission mask — for example, a degraded robot may only execute `IDLE` and `REGROUP` actions.
+When `health < DEGRADED_THRESHOLD` (default: 40), `FaultMonitorSystem`:
+
+1. Sets `DEGRADED` on `BehaviourStateComponent`.
+2. Snapshots the current `PermissionMaskComponent` (held internally on `FaultMonitorSystem`, not on the component itself — keeps the component POD).
+3. Writes a restricted `PermissionMaskComponent`:
+   - `allowed_builtins = (1u << actions::IDLE) | (1u << actions::REGROUP)`
+   - `allow_user_actions = false`
+
+When health recovers above `DEGRADED_THRESHOLD + HYSTERESIS` (default hysteresis: 10), `FaultMonitorSystem` restores the snapshotted mask and clears `DEGRADED`. The hysteresis band prevents thrashing when health oscillates near the threshold.
+
+Under `Sequential` scheduler mode (§5.2) the Fault → Validator ordering is deterministic each tick; under `Parallel`, the §5.1 hazard graph still forces Fault-then-Validator within a tick (Fault writes `PermissionMaskComponent`, Validator reads it). The only non-determinism is *which* tick the transition lands on — exactly the case hysteresis covers.
+
+`ActionValidatorSystem` honours the mask on its next tick (§6.4). Action handlers themselves are not aware of the mask; rejection happens upstream of dispatch.
 
 ### 13.3 Neighbour Fault Detection
 
@@ -1094,7 +1177,7 @@ Without runtime introspection, the scheduler, neighbour table, and action valida
 
 ### 14.1 State snapshot
 
-`World::dump_state()` serialises the full local runtime state to JSON: registry contents, neighbour table entries, pending action queues, last-tick scheduler timings. This is the single canonical introspection path — the matplotlib visualiser (§9.3), unit tests, and any future GUI all consume the same snapshot.
+`World::dump_state()` serialises the full local runtime state to JSON: registry contents (including `PermissionMaskComponent` and queue rejection counters, §4.4), neighbour table entries, pending action queues, last-tick scheduler timings. This is the single canonical introspection path — the matplotlib visualiser (§9.3), unit tests, and any future GUI all consume the same snapshot.
 
 ```cpp
 namespace mith {
@@ -1133,7 +1216,9 @@ public:
 
 ### 14.3 Counters on bounded resources
 
-Every bounded queue (`ActionQueueComponent`, `CommBufferComponent`, transport TX queues) maintains drop / overflow counters. Counters are exposed as queryable components — readable via the registry, included in `dump_state()`, and assert-able in tests. This makes the queue overflow policy (whichever is chosen in §15 Pre-v0.1) *verifiable* rather than implicit.
+Every `BoundedQueue<T, N, Policy>` instance (§4.5) exposes `dropped_count` and `overflow_events`. Built-in queues — `ActionQueueComponent`, `CommBufferComponent`, transport TX — surface these counters via `dump_state()` (§14.1); custom user queues inherit the same observability by using the same template.
+
+These counters are *the* signaling substrate for the `FaultTrigger` policy: `FaultMonitorSystem` reads `overflow_events` deltas across all bounded queues and drives §13.1 health decrements from them. No separate fault-event channel — the counters are the contract. This makes overflow behaviour verifiable in tests (`CHECK(queue.dropped_count() == 0)`) and replayable in deterministic-mode traces (§5.2 `Sequential`).
 
 ### 14.4 Trace mode
 
@@ -1196,8 +1281,8 @@ The schedule below is dependency-ordered: each tier resolves blockers for the ne
 - [x] **`ActionExecutorSystem` write set** — **resolved**: split into the **Action Handler Registry** — `ActionValidatorSystem` plus N typed handler systems, each declaring bounded writes visible to the DAG. No tick-wide barrier. See §6.4 / §5.3.
 - [x] **Hot-component registration** — **resolved**: unified runtime registration. CRTP base (`HotComponent<T>` / `ColdComponent<T>`) is a storage hint; built-in and user components share one API. Origin tracked via `ComponentOrigin`; built-ins use a privileged internal path user code cannot reach. `WorldConfig::registration_policy` (Open / LockAfterInit / BuiltInOnly) gates registration — `BuiltInOnly` is the EW lockdown posture (§13.5). Every registration emits a `component_registered` audit event (§14). See §4.1 / §4.3 / §4.4 / §8 / §13.5 / §14.4.
 - [x] **Determinism scope** — **resolved**: two scheduler modes (`Parallel` / `Sequential`) selectable per `World` via `WorldConfig::scheduler_mode`. `Parallel` is the production default and makes no determinism promise; `Sequential` is the sim default (`SimBus` sets it) and is fully deterministic given fixed inputs. Schedule capture/replay for parallel-mode determinism is on the post-v1.0 roadmap. See §5.2 / §8 / §9.1 / §9.2.
-- [ ] **Bounded-queue overflow contract** — per queue (`ActionQueueComponent`, `CommBufferComponent`): drop-oldest / drop-newest / fault-trigger.
-- [ ] **Action permission mask** — where it lives, who writes it, how degraded mode mutates it (§6.4, §13.2).
+- [x] **Bounded-queue overflow contract** — **resolved**: `BoundedQueue<T, N, OverflowPolicy>` template with three compile-time policies (`DropOldest`, `DropNewest`, `FaultTrigger`). Built-ins: `ActionQueueComponent` → `DropNewest` (protect validated intent), `CommBufferComponent` → `DropOldest` (network bursts, stale evicted). `FaultTrigger` integrates with `FaultMonitorSystem` via §14.3 counter deltas — no separate signaling channel. See §4.5 / §4.4 / §7.5 / §13.1 / §14.3.
+- [x] **Action permission mask** — **resolved**: `PermissionMaskComponent` (uint32 builtin bitmask + bool user-action flag) on the self entity. Written only by `FaultMonitorSystem`; read by `ActionValidatorSystem`. Hazard graph orders Fault → Validator naturally. Degraded mode (§13.2) restricts to `IDLE|REGROUP`, no user actions, with hysteresis on recovery. Rejections increment a counter on `ActionQueueComponent` and emit `WARN` traces; rejections do NOT decrement health (avoids feedback loop). See §4.4 / §5.3 / §6.4 / §13.1 / §13.2 / §14.1.
 - [ ] **v0.1 scope coherence** — pull `BeaconSystem` + `NeighbourTable` into v0.1 (the flocking demo depends on them), or push the flocking demo to v0.2. Decide here.
 - [ ] **Visualiser dependency** — gate `nlohmann/json` behind `MITH_BUILD_SIM`; drop the "no compile-time dependency" claim in §9.3 or scope it to the core library only.
 
