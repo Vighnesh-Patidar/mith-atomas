@@ -822,7 +822,77 @@ The runtime has no global coordinator. Each node operates independently. If a su
 
 ---
 
-## 14. Design Constraints & Non-Goals
+## 14. Observability
+
+Without runtime introspection, the scheduler, neighbour table, and action validation are opaque — tests can't assert what happened, and bugs surface as silence. MithAtomas exposes structured introspection from the core. No external tooling required to debug.
+
+### 14.1 State snapshot
+
+`World::dump_state()` serialises the full local runtime state to JSON: registry contents, neighbour table entries, pending action queues, last-tick scheduler timings. This is the single canonical introspection path — the matplotlib visualiser (§9.3), unit tests, and any future GUI all consume the same snapshot.
+
+```cpp
+namespace mith {
+
+class World {
+public:
+    // ... existing API ...
+    std::string dump_state() const;   // JSON
+};
+
+} // namespace mith
+```
+
+### 14.2 Scheduler timings
+
+Each tick records per-system wall time and dispatch order. Lets tests verify that systems declared parallel by the DAG actually ran concurrently, and surfaces tick overruns before they cascade.
+
+```cpp
+namespace mith {
+
+struct SystemTiming {
+    std::string name;
+    float       start_us;
+    float       duration_us;
+    uint32_t    thread_id;
+};
+
+class SystemScheduler {
+public:
+    // ... existing API ...
+    std::span<const SystemTiming> last_tick_timings() const noexcept;
+};
+
+} // namespace mith
+```
+
+### 14.3 Counters on bounded resources
+
+Every bounded queue (`ActionQueueComponent`, `CommBufferComponent`, transport TX queues) maintains drop / overflow counters. Counters are exposed as queryable components — readable via the registry, included in `dump_state()`, and assert-able in tests. This makes the queue overflow policy (whichever is chosen in §15 Pre-v0.1) *verifiable* rather than implicit.
+
+### 14.4 Trace mode
+
+`WorldConfig::trace_level` controls structured logging:
+
+| Level | Emits |
+|---|---|
+| `OFF` (default) | Nothing |
+| `WARN` | Fault transitions, dropped messages, validation rejections |
+| `INFO` | System tick boundaries, action validation outcomes |
+| `DEBUG` | Per-component reads / writes |
+
+Trace output is one JSON object per line on stderr (or a configurable sink). Production deployments stay at `OFF`; CI integration tests use `INFO`; manual debugging uses `DEBUG`. No external logging dependency.
+
+### 14.5 What this is not
+
+- **Not a metrics service.** No Prometheus endpoint in the core. If you need that, write a system that reads counters and pushes to your stack.
+- **Not a tracing protocol.** No OpenTelemetry, no spans. Scheduler timings cover what's actually needed.
+- **Not a visualiser.** The matplotlib script and any future GUI live downstream of `dump_state()`. The runtime ships the data; consumers ship the view.
+
+Keeping these out of the core preserves the dependency footprint promised in §11 and the embedded-target focus in §13.
+
+---
+
+## 15. Design Constraints & Non-Goals
 
 **Constraints:**
 - No dynamic memory allocation in hot path systems after init. All component stores pre-allocate.
@@ -839,7 +909,7 @@ The runtime has no global coordinator. Each node operates independently. If a su
 
 ---
 
-## 15. Roadmap
+## 16. Roadmap
 
 The schedule below is dependency-ordered: each tier resolves blockers for the next. Pre-v0.1 is a doc-only phase — open architectural questions must be answered in §3–§9 before v0.1 code can be coherently written.
 
@@ -865,7 +935,8 @@ The schedule below is dependency-ordered: each tier resolves blockers for the ne
 - [ ] FlockingSystem (Reynolds rules)
 - [ ] `BeaconSystem` + `NeighbourTable` *(if pre-v0.1 resolved scope this way)*
 - [ ] Flocking demo (50 simulated robots, matplotlib visualiser)
-- [ ] Unit tests for registry, scheduler, neighbour table
+- [ ] Observability primitives — `World::dump_state()`, `SystemScheduler::last_tick_timings()`, queue counters, `trace_level` (see §14)
+- [ ] Unit tests for registry, scheduler, neighbour table (leveraging observability primitives for assertions)
 - [ ] CMake install target
 
 ### v0.2 — Distributed Bootstrap & Channel Separation
@@ -911,7 +982,7 @@ Partition behaviour is part of the public contract — must land before API free
 
 ---
 
-## 16. Contributing & Conventions
+## 17. Contributing & Conventions
 
 - **Branch model:** `main` is always stable. Feature branches off `dev`.
 - **Commit style:** conventional commits (`feat:`, `fix:`, `docs:`, `refactor:`)
