@@ -6,6 +6,8 @@ add_executable(mith_unit_tests
     unit/test_registry.cpp
     unit/test_builtin_components.cpp
     unit/test_scheduler.cpp
+    unit/test_json_writer.cpp
+    unit/test_trace_sink.cpp
 )
 
 target_link_libraries(mith_unit_tests PRIVATE mith::mith)

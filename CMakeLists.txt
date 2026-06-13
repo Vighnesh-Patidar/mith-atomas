@@ -27,6 +27,8 @@ add_library(mith STATIC
     src/identity/hierarchical_id.cpp
     src/core/registry.cpp
     src/core/scheduler.cpp
+    src/core/json_writer.cpp
+    src/core/trace_sink.cpp
 )
 add_library(mith::mith ALIAS mith)
 
