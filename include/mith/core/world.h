@@ -162,6 +162,16 @@ public:
     // tests, and snapshot streaming, not the hot tick path.
     std::string dump_state() const;
 
+    // Report a fault event. Transports (link-down, CRC failures), user
+    // code (sensor timeouts, hardware faults), and built-in systems
+    // call this; FaultMonitorSystem (§13.1) reads the cumulative count
+    // delta each tick and decrements HealthComponent::value accordingly.
+    // Thread-safe — atomic increment, suitable for the Parallel scheduler.
+    void          report_fault() noexcept;
+
+    // Cumulative fault count since World construction. Monotonic.
+    std::uint64_t fault_count() const noexcept;
+
 private:
     WorldConfig                       config_;
     EntityRegistry                    registry_;
@@ -169,6 +179,7 @@ private:
     SwarmContext                      context_{};
     std::unique_ptr<TransportLayer>   transport_;
     NeighbourTable                    neighbour_table_;
+    std::atomic<std::uint64_t>        fault_count_{0};   // §13.1 fault counter
     bool                              initialized_ = false;
 };
 

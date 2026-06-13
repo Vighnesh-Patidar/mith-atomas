@@ -140,6 +140,14 @@ const TransportLayer*  World::transport() const noexcept { return transport_.get
 NeighbourTable&        World::neighbour_table()       noexcept { return neighbour_table_; }
 const NeighbourTable&  World::neighbour_table() const noexcept { return neighbour_table_; }
 
+void World::report_fault() noexcept {
+    fault_count_.fetch_add(1, std::memory_order_relaxed);
+}
+
+std::uint64_t World::fault_count() const noexcept {
+    return fault_count_.load(std::memory_order_relaxed);
+}
+
 SchedulerStatus World::register_system(std::unique_ptr<System> system) {
     return scheduler_.register_system(std::move(system));
 }
