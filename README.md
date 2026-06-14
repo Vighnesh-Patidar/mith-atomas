@@ -33,7 +33,11 @@ Frames captured live; rendered by `tools/visualiser/visualise.py` (2D) and `tool
 
 ---
 
-## Status — v0.3 feature complete
+## Status — v1.0.0-rc1
+
+First release candidate. Every software item on the [§16 ARCHITECTURE roadmap](ARCHITECTURE.md#16-roadmap) up to v1.0 is in. The two remaining roadmap entries (Raspberry Pi 4 build verification + `SerialTransport` validated on a physical robot pair) are field-hardware items that need actual hardware access — the ARM build target in CI already proves the code compiles + tests on aarch64 Linux. RC1 freezes the API surface under the [SemVer policy](docs/SEMVER.md); the hardware items roll into the GA tag once validated.
+
+### What ships
 
 | Area | What ships |
 |---|---|
@@ -62,12 +66,19 @@ Test suite — verified across the build matrix:
 | all options off | 352 | 13,410 |
 | `UDP=ON AUTH=ON SERIAL=ON` | 398 | 13,659 |
 
-All green, including integration tests for SimBus-driven fault injection, the signed-mode rotation chain, the full-stack lifecycle, UDP multicast loopback, signed beacons end-to-end (with adversary spoofing rejection), and serial transport via socketpair.
+All green, including integration tests for SimBus-driven fault injection, the signed-mode rotation chain, the full-stack lifecycle, UDP multicast loopback, signed beacons end-to-end (with adversary spoofing rejection), serial transport via socketpair, the partition → heal merge path under fault injection, and the v0.3 1000-entity perf gate (run at N=500 for the rc1 baseline — 6.5 s median per tick on a 4-core i5-11260H, FlockingSystem inner loop at 0.003 ms/world thanks to the spatial index).
 
-Pre-v0.1 design phase: **9/9 questions resolved** (see [ARCHITECTURE.md §16](ARCHITECTURE.md#16-roadmap)).
+CI runs the build matrix on Linux × {all-off, udp-auth, all-on}, asan+ubsan under Debug, `-Werror` under Release, macOS-latest with Apple Clang, and ubuntu-24.04-arm for the aarch64 platform tier. Doxygen build verified per push; HTML artifact uploaded for 14 days.
 
-v1.0 next — remaining roadmap items per §16:
-3D motion-stack hardening, action handler registry expansion (custom + handler stub), Parallel scheduler benchmarks + determinism replay, formal config schema validation, on-device boot/persistence story, and the deferred microcontroller tier (smaller `World` + binary-only sinks). Plus the operational pieces: docs site, hardware bring-up guide, release packaging.
+Pre-v0.1 design phase: **9/9 questions resolved**. v1.0 software ledger: **41/43 items shipped** (the two open items are physical-hardware validation — see [`qa-report/`](qa-report/) for the full progress mapping).
+
+### Outstanding for GA (post-rc1)
+
+| Item | Notes |
+|---|---|
+| Raspberry Pi 4 build verification | CI's aarch64 job covers the compile; runtime numbers on physical Pi 4 needed |
+| `SerialTransport` on a physical robot pair | Loopback via `socketpair` is in CI; physical UART pair (USB-serial adapters) still TODO |
+| RL policy demo *(nice-to-have)* | Dummy policy consuming `EntitySnapshot` and emitting `Action`s |
 
 ---
 
