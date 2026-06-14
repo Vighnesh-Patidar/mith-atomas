@@ -26,6 +26,9 @@ add_executable(mith_unit_tests
     unit/test_identity_rotation.cpp
     unit/test_channel_aware_transport.cpp
     unit/test_task_alloc_system.cpp
+    integration/test_fault_injection_integration.cpp
+    integration/test_identity_rotation_integration.cpp
+    integration/test_swarm_lifecycle_integration.cpp
 )
 
 target_link_libraries(mith_unit_tests PRIVATE mith::mith)
