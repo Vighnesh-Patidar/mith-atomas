@@ -31,6 +31,7 @@ add_executable(mith_unit_tests
     integration/test_swarm_lifecycle_integration.cpp
     integration/test_udp_multicast_integration.cpp
     integration/test_signed_beacons_integration.cpp
+    integration/test_partition_merge_integration.cpp
     unit/test_udp_wire.cpp
     unit/test_discovery_system.cpp
     unit/test_peer_key_registry.cpp
