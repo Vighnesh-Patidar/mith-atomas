@@ -1,0 +1,83 @@
+[  1%] Building CXX object CMakeFiles/mith.dir/src/identity/hierarchical_id.cpp.o
+[  2%] Building CXX object CMakeFiles/mith.dir/src/identity/identity_rotation.cpp.o
+[  4%] Building CXX object CMakeFiles/mith.dir/src/core/registry.cpp.o
+[  5%] Building CXX object CMakeFiles/mith.dir/src/identity/uuid.cpp.o
+[  7%] Building CXX object CMakeFiles/mith.dir/src/core/scheduler.cpp.o
+[  8%] Building CXX object CMakeFiles/mith.dir/src/core/json_writer.cpp.o
+[ 10%] Building CXX object CMakeFiles/mith.dir/src/core/trace_sink.cpp.o
+[ 11%] Building CXX object CMakeFiles/mith.dir/src/core/binary_trace_sink.cpp.o
+[ 13%] Building CXX object CMakeFiles/mith.dir/src/core/world.cpp.o
+[ 14%] Building CXX object CMakeFiles/mith.dir/src/comms/neighbour_table.cpp.o
+[ 15%] Building CXX object CMakeFiles/mith.dir/src/comms/beacon_system.cpp.o
+/home/kali/mith-atomas/src/core/world.cpp: In member function ‘void mith::World::rotate_identity()’:
+/home/kali/mith-atomas/src/core/world.cpp:215:26: warning: variable ‘prev_id’ set but not used [-Wunused-but-set-variable]
+  215 |     const HierarchicalID prev_id = id_comp.id;
+      |                          ^~~~~~~
+[ 17%] Building CXX object CMakeFiles/mith.dir/src/comms/peer_key_registry.cpp.o
+[ 18%] Building CXX object CMakeFiles/mith.dir/src/comms/udp_wire.cpp.o
+[ 20%] Building CXX object CMakeFiles/mith.dir/src/comms/serial_framing.cpp.o
+[ 21%] Building CXX object CMakeFiles/mith.dir/src/systems/flocking_system.cpp.o
+[ 23%] Building CXX object CMakeFiles/mith.dir/src/systems/kinematics_system.cpp.o
+[ 24%] Building CXX object CMakeFiles/mith.dir/src/systems/fault_monitor_system.cpp.o
+[ 26%] Building CXX object CMakeFiles/mith.dir/src/systems/clock_sync_system.cpp.o
+[ 27%] Building CXX object CMakeFiles/mith.dir/src/systems/discovery_system.cpp.o
+[ 28%] Building CXX object CMakeFiles/mith.dir/src/systems/task_alloc_system.cpp.o
+/home/kali/mith-atomas/src/systems/discovery_system.cpp:31:6: warning: ‘bool mith::{anonymous}::extract_pubkey_from_payload(const mith::Message&, mith::IdentityKey&)’ defined but not used [-Wunused-function]
+   31 | bool extract_pubkey_from_payload(const Message& m, IdentityKey& out) noexcept {
+      |      ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/kali/mith-atomas/src/systems/discovery_system.cpp:24:6: warning: ‘void mith::{anonymous}::embed_pubkey_into_payload(mith::Message&, const mith::IdentityKey&)’ defined but not used [-Wunused-function]
+   24 | void embed_pubkey_into_payload(Message& m, const IdentityKey& key) noexcept {
+      |      ^~~~~~~~~~~~~~~~~~~~~~~~~
+[ 30%] Building CXX object CMakeFiles/mith.dir/src/systems/partition_merge_system.cpp.o
+[ 31%] Building CXX object CMakeFiles/mith.dir/src/sim/sim_clock.cpp.o
+[ 33%] Building CXX object CMakeFiles/mith.dir/src/sim/sim_bus.cpp.o
+[ 34%] Linking CXX static library libmith.a
+[ 34%] Built target mith
+[ 37%] Building CXX object examples/flocking_demo_3d/CMakeFiles/flocking_demo_3d.dir/main.cpp.o
+[ 37%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/unit/test_main.cpp.o
+[ 39%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/unit/test_uuid.cpp.o
+[ 40%] Building CXX object examples/flocking_demo/CMakeFiles/flocking_demo.dir/main.cpp.o
+[ 42%] Linking CXX executable flocking_demo
+[ 43%] Linking CXX executable flocking_demo_3d
+[ 43%] Built target flocking_demo_3d
+[ 43%] Built target flocking_demo
+[ 44%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/unit/test_hierarchical_id.cpp.o
+[ 46%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/unit/test_bounded_queue.cpp.o
+[ 47%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/unit/test_registry.cpp.o
+[ 49%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/unit/test_builtin_components.cpp.o
+[ 50%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/unit/test_scheduler.cpp.o
+[ 52%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/unit/test_json_writer.cpp.o
+[ 53%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/unit/test_trace_sink.cpp.o
+[ 55%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/unit/test_view_and_snapshot.cpp.o
+[ 56%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/unit/test_action.cpp.o
+[ 57%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/unit/test_message.cpp.o
+[ 59%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/unit/test_world.cpp.o
+[ 60%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/unit/test_identity_stubs.cpp.o
+[ 62%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/unit/test_state_vector.cpp.o
+[ 63%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/unit/test_neighbour_table.cpp.o
+[ 65%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/unit/test_transport.cpp.o
+[ 66%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/unit/test_sim.cpp.o
+[ 68%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/unit/test_beacon_system.cpp.o
+[ 69%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/unit/test_flocking_system.cpp.o
+[ 71%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/unit/test_kinematics_system.cpp.o
+[ 72%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/unit/test_fault_monitor_system.cpp.o
+[ 73%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/unit/test_ed25519.cpp.o
+[ 75%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/unit/test_chacha20.cpp.o
+[ 76%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/unit/test_identity_rotation.cpp.o
+[ 78%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/unit/test_channel_aware_transport.cpp.o
+[ 79%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/unit/test_task_alloc_system.cpp.o
+[ 81%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/integration/test_fault_injection_integration.cpp.o
+[ 82%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/integration/test_identity_rotation_integration.cpp.o
+[ 84%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/integration/test_swarm_lifecycle_integration.cpp.o
+[ 85%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/integration/test_udp_multicast_integration.cpp.o
+[ 86%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/integration/test_signed_beacons_integration.cpp.o
+[ 88%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/unit/test_discovery_system.cpp.o
+[ 89%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/unit/test_udp_wire.cpp.o
+[ 91%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/unit/test_peer_key_registry.cpp.o
+[ 92%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/unit/test_clock_sync_system.cpp.o
+[ 94%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/unit/test_binary_trace_sink.cpp.o
+[ 95%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/unit/test_serial_framing.cpp.o
+[ 97%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/unit/test_partition_merge_system.cpp.o
+[ 98%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/integration/test_serial_transport_integration.cpp.o
+[100%] Linking CXX executable mith_unit_tests
+[100%] Built target mith_unit_tests

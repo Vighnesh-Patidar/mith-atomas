@@ -31,38 +31,41 @@ Frames captured live; rendered by `tools/visualiser/visualise.py` (2D) and `tool
 
 ---
 
-## Status — v0.2 feature complete
+## Status — v0.3 feature complete
 
 | Area | What ships |
 |---|---|
-| Identity | `UUID` (RFC 4122 v4), `HierarchicalID`, **Ed25519** sign/verify via vendored TweetNaCl, **ChaCha20 CSPRNG** (RFC 8439, per-thread, replaces `std::random_device`-per-call), **identity rotation** (`PERIODIC` + `EVENT_DRIVEN` + `IdentityCertificate` continuity chain signed by previous key) |
+| Identity | `UUID` (RFC 4122 v4), `HierarchicalID`, Ed25519 sign/verify via vendored TweetNaCl, ChaCha20 CSPRNG (RFC 8439, per-thread), identity rotation (`PERIODIC` + `EVENT_DRIVEN` + `IdentityCertificate` continuity chain signed by previous key) |
 | ECS | `EntityRegistry` (registration policies, view, snapshot, `ComponentOrigin` tag, sink-wired audit), all 10 §4.4 built-in components, `BoundedQueue<T,N,Policy>` |
 | Scheduling | `SystemDescriptor` two-axis hazards, `SystemScheduler` with both `Sequential` and `Parallel` modes (thread pool + hazard DAG), `last_tick_timings()` |
-| Comms | `StateVector`, `Message`, `NeighbourTable`, **channel-aware transport** (`BeaconTransport` + `MessageTransport` interfaces, unified `TransportLayer` for combined impls), `BeaconSystem`, `BROADCAST_ID` semantics |
-| Transports | `SimTransport` (in-process), **`UDPMulticastTransport`** (IPv4 multicast over POSIX sockets, tagged wire frames via `udp_wire`) |
-| Motion | `FlockingSystem` (Reynolds), `KinematicsSystem` |
-| Fault handling | **`FaultMonitorSystem`** (§13.1, §13.2) — fault counter delta → health decrement → degraded mask install with snapshot/restore + hysteresis |
-| Task allocation | **`TaskAllocSystem`** (§5.3) — threshold-based, deterministic, pre-partition-merge |
+| Comms | `StateVector` (now carrying `sync_time_s` + `sender_pubkey` + `signature`), `Message`, `NeighbourTable`, channel-aware transport (`BeaconTransport` + `MessageTransport` interfaces, unified `TransportLayer` for combined impls), `BROADCAST_ID` semantics |
+| Transports | `SimTransport` (in-process), `UDPMulticastTransport` (POSIX sockets), **`SerialTransport`** (POSIX termios + sync-byte/length framing via `serial_framing`) |
+| Motion | `FlockingSystem` (Reynolds), `KinematicsSystem`, 20-robot 3D demo |
+| Fault handling | `FaultMonitorSystem` (§13.1, §13.2) — fault counter delta → health decrement → degraded mask install with snapshot/restore + hysteresis |
+| Task allocation | `TaskAllocSystem` (§5.3) — threshold-based, deterministic, with merge-window override during partition heals |
+| Discovery | **`DiscoverySystem`** — passive (NeighbourTable quorum / timeout) + active (HELLO/WELCOME over message channel) + signed-mode pubkey carriage in HELLO/WELCOME payload |
+| Security | **Signed beacons end-to-end** — BeaconSystem signs each emit with the World's keypair; receivers verify; TOFU pin per HID via `PeerKeyRegistry` (writable by DiscoverySystem ahead of first beacon) |
+| Clock sync | **`ClockSyncSystem`** — bounded-drift GTSP variant, sender stamps `sync_time_s` on every beacon, receivers nudge `clock_offset_s` toward the swarm mean each tick |
+| Partition handling | **`PartitionMergeSystem`** — detects neighbour-count jumps (heal events); opens a merge window during which `TaskAllocSystem` collapses stability hysteresis for fast reconvergence |
 | Sim | `SimClock`, `SimBus` (range-limited delivery), `SimTransport` |
-| Observability | Hand-rolled JSON writer, `TraceSink` interface + `JsonTraceSink` + `NullTraceSink`, `World::dump_state()`, `component_registered` / `tick_completed` audit events |
-| Runtime | `World` (config, init, tick, run, identity, transports — unified or per-channel, neighbour table, scheduler / registry forwarders, sink wiring) |
-| Demo | 10-robot 2D flocking demo + matplotlib visualiser |
-| Build | CMake STATIC library, install target with `find_package(mith-atomas)` config, doctest-vendored test suite, build matrix gated by `MITH_ENABLE_UDP` / `MITH_ENABLE_AUTH` |
+| Observability | Hand-rolled JSON writer, `TraceSink` interface + `JsonTraceSink` + `NullTraceSink`, **`BinaryTraceSink`** (allocation-free fixed-size ring buffer, microcontroller-tier), `World::dump_state()`, `component_registered` / `tick_completed` audit events |
+| Runtime | `World` (config, init, tick, run, identity, transports — unified or per-channel, neighbour table, scheduler / registry forwarders, sink wiring, peer-key registry, clock offset, merge window) |
+| Demos | 10-robot 2D flocking demo + 20-robot 3D demo + matplotlib visualisers |
+| Build | CMake STATIC library, install target with `find_package(mith-atomas)` config, doctest-vendored test suite, build matrix gated by `MITH_ENABLE_UDP` / `MITH_ENABLE_AUTH` / `MITH_ENABLE_SERIAL` |
 
 Test suite — verified across the build matrix:
 
 | Config | Cases | Assertions |
 |---|---:|---:|
-| `UDP=OFF AUTH=OFF` | 295 | 13,219 |
-| `UDP=ON  AUTH=OFF` | 299 | 13,235 |
-| `UDP=ON  AUTH=ON ` | 329 | 13,342 |
+| all options off | 352 | 13,410 |
+| `UDP=ON AUTH=ON SERIAL=ON` | 398 | 13,659 |
 
-All green, including integration tests (`tests/integration/`) for SimBus-driven fault injection, the signed-mode rotation chain, the v0.2 full-stack lifecycle, and UDP multicast loopback.
+All green, including integration tests for SimBus-driven fault injection, the signed-mode rotation chain, the full-stack lifecycle, UDP multicast loopback, signed beacons end-to-end (with adversary spoofing rejection), and serial transport via socketpair.
 
 Pre-v0.1 design phase: **9/9 questions resolved** (see [ARCHITECTURE.md §16](ARCHITECTURE.md#16-roadmap)).
 
-v0.3 next — see the [roadmap](ARCHITECTURE.md#16-roadmap):
-discovery / bootstrap protocol, clock sync, identity rotation partition-merge (epoch-leader or version-vector), serial transport, binary `TraceSink`, signed-mode beacons end-to-end, 3D motion stack hardening.
+v1.0 next — remaining roadmap items per §16:
+3D motion-stack hardening, action handler registry expansion (custom + handler stub), Parallel scheduler benchmarks + determinism replay, formal config schema validation, on-device boot/persistence story, and the deferred microcontroller tier (smaller `World` + binary-only sinks). Plus the operational pieces: docs site, hardware bring-up guide, release packaging.
 
 ---
 

@@ -1,0 +1,84 @@
+[  2%] Building CXX object CMakeFiles/mith.dir/src/identity/identity_rotation.cpp.o
+[  2%] Building CXX object CMakeFiles/mith.dir/src/identity/uuid.cpp.o
+[  5%] Building CXX object CMakeFiles/mith.dir/src/identity/hierarchical_id.cpp.o
+[  5%] Building CXX object CMakeFiles/mith.dir/src/core/registry.cpp.o
+[  6%] Building CXX object CMakeFiles/mith.dir/src/core/scheduler.cpp.o
+[  8%] Building CXX object CMakeFiles/mith.dir/src/core/json_writer.cpp.o
+[  9%] Building CXX object CMakeFiles/mith.dir/src/core/trace_sink.cpp.o
+[ 10%] Building CXX object CMakeFiles/mith.dir/src/core/binary_trace_sink.cpp.o
+[ 12%] Building CXX object CMakeFiles/mith.dir/src/core/world.cpp.o
+[ 13%] Building CXX object CMakeFiles/mith.dir/src/comms/neighbour_table.cpp.o
+[ 14%] Building CXX object CMakeFiles/mith.dir/src/comms/beacon_system.cpp.o
+[ 16%] Building CXX object CMakeFiles/mith.dir/src/comms/peer_key_registry.cpp.o
+[ 17%] Building CXX object CMakeFiles/mith.dir/src/comms/udp_wire.cpp.o
+[ 18%] Building CXX object CMakeFiles/mith.dir/src/comms/serial_framing.cpp.o
+[ 20%] Building CXX object CMakeFiles/mith.dir/src/systems/flocking_system.cpp.o
+[ 21%] Building CXX object CMakeFiles/mith.dir/src/systems/kinematics_system.cpp.o
+[ 22%] Building CXX object CMakeFiles/mith.dir/src/systems/fault_monitor_system.cpp.o
+[ 24%] Building CXX object CMakeFiles/mith.dir/src/systems/task_alloc_system.cpp.o
+[ 25%] Building CXX object CMakeFiles/mith.dir/src/systems/discovery_system.cpp.o
+[ 27%] Building CXX object CMakeFiles/mith.dir/src/systems/clock_sync_system.cpp.o
+[ 28%] Building CXX object CMakeFiles/mith.dir/src/systems/partition_merge_system.cpp.o
+[ 29%] Building CXX object CMakeFiles/mith.dir/src/sim/sim_clock.cpp.o
+[ 31%] Building CXX object CMakeFiles/mith.dir/src/sim/sim_bus.cpp.o
+[ 32%] Building CXX object CMakeFiles/mith.dir/src/comms/udp_multicast_transport.cpp.o
+[ 33%] Building CXX object CMakeFiles/mith.dir/src/comms/serial_transport.cpp.o
+[ 35%] Building C object CMakeFiles/mith.dir/third_party/tweetnacl/tweetnacl.c.o
+[ 36%] Building CXX object CMakeFiles/mith.dir/src/identity/chacha20.cpp.o
+[ 37%] Building CXX object CMakeFiles/mith.dir/src/identity/ed25519.cpp.o
+In function ‘bool mith::verify_signature(const IdentityKey&, const uint8_t*, std::size_t, const uint8_t*, std::size_t)’,
+    inlined from ‘bool mith::verify_signature(const IdentityKey&, const uint8_t*, std::size_t, const uint8_t*, std::size_t)’ at /home/kali/mith-atomas/src/identity/ed25519.cpp:47:6:
+/home/kali/mith-atomas/src/identity/ed25519.cpp:58:20: warning: ‘void* memcpy(void*, const void*, size_t)’ specified bound 18446744073709551552 exceeds maximum object size 9223372036854775807 [-Wstringop-overflow=]
+   58 |         std::memcpy(sm.data() + IdentityKey::SIGNATURE_LEN, payload, payload_size);
+      |         ~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/kali/mith-atomas/src/identity/ed25519.cpp:58:20: warning: ‘void* memcpy(void*, const void*, size_t)’ specified bound 18446744073709551553 exceeds maximum object size 9223372036854775807 [-Wstringop-overflow=]
+[ 39%] Linking CXX static library libmith.a
+[ 39%] Built target mith
+[ 41%] Building CXX object examples/flocking_demo_3d/CMakeFiles/flocking_demo_3d.dir/main.cpp.o
+[ 41%] Building CXX object examples/flocking_demo/CMakeFiles/flocking_demo.dir/main.cpp.o
+[ 44%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/unit/test_main.cpp.o
+[ 44%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/unit/test_uuid.cpp.o
+[ 45%] Linking CXX executable flocking_demo_3d
+[ 47%] Linking CXX executable flocking_demo
+[ 47%] Built target flocking_demo_3d
+[ 48%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/unit/test_hierarchical_id.cpp.o
+[ 48%] Built target flocking_demo
+[ 50%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/unit/test_bounded_queue.cpp.o
+[ 51%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/unit/test_registry.cpp.o
+[ 52%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/unit/test_builtin_components.cpp.o
+[ 54%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/unit/test_scheduler.cpp.o
+[ 55%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/unit/test_json_writer.cpp.o
+[ 56%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/unit/test_trace_sink.cpp.o
+[ 58%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/unit/test_view_and_snapshot.cpp.o
+[ 59%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/unit/test_action.cpp.o
+[ 60%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/unit/test_message.cpp.o
+[ 62%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/unit/test_world.cpp.o
+[ 63%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/unit/test_identity_stubs.cpp.o
+[ 64%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/unit/test_state_vector.cpp.o
+[ 66%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/unit/test_neighbour_table.cpp.o
+[ 67%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/unit/test_transport.cpp.o
+[ 68%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/unit/test_sim.cpp.o
+[ 70%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/unit/test_beacon_system.cpp.o
+[ 71%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/unit/test_flocking_system.cpp.o
+[ 72%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/unit/test_kinematics_system.cpp.o
+[ 74%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/unit/test_fault_monitor_system.cpp.o
+[ 75%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/unit/test_ed25519.cpp.o
+[ 77%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/unit/test_chacha20.cpp.o
+[ 78%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/unit/test_identity_rotation.cpp.o
+[ 79%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/unit/test_channel_aware_transport.cpp.o
+[ 81%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/unit/test_task_alloc_system.cpp.o
+[ 82%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/integration/test_fault_injection_integration.cpp.o
+[ 83%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/integration/test_identity_rotation_integration.cpp.o
+[ 85%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/integration/test_swarm_lifecycle_integration.cpp.o
+[ 86%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/integration/test_udp_multicast_integration.cpp.o
+[ 87%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/integration/test_signed_beacons_integration.cpp.o
+[ 89%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/unit/test_udp_wire.cpp.o
+[ 90%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/unit/test_discovery_system.cpp.o
+[ 91%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/unit/test_peer_key_registry.cpp.o
+[ 93%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/unit/test_clock_sync_system.cpp.o
+[ 94%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/unit/test_binary_trace_sink.cpp.o
+[ 95%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/unit/test_partition_merge_system.cpp.o
+[ 97%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/unit/test_serial_framing.cpp.o
+[ 98%] Building CXX object tests/CMakeFiles/mith_unit_tests.dir/integration/test_serial_transport_integration.cpp.o
+[100%] Linking CXX executable mith_unit_tests
+[100%] Built target mith_unit_tests
