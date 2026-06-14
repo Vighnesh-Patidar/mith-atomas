@@ -36,6 +36,7 @@ add_library(mith STATIC
     src/systems/flocking_system.cpp
     src/systems/kinematics_system.cpp
     src/systems/fault_monitor_system.cpp
+    src/systems/task_alloc_system.cpp
     src/sim/sim_clock.cpp
     src/sim/sim_bus.cpp
 )

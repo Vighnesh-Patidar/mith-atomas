@@ -25,6 +25,7 @@ add_executable(mith_unit_tests
     unit/test_chacha20.cpp
     unit/test_identity_rotation.cpp
     unit/test_channel_aware_transport.cpp
+    unit/test_task_alloc_system.cpp
 )
 
 target_link_libraries(mith_unit_tests PRIVATE mith::mith)
