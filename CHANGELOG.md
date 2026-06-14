@@ -10,7 +10,7 @@ First release candidate. **41/43 ARCHITECTURE.md §16 roadmap items shipped.** T
 
 - `MITH_STABLE_API` / `MITH_EXPERIMENTAL_API` / `MITH_INTERNAL` markers at every public class/struct declaration. Documented in `docs/SEMVER.md`. Macros expand to nothing at compile time; consumed by Doxygen and future static-analysis tooling.
 - `Doxyfile` + `scripts/build_docs.sh`. Generates HTML API reference under `docs/api/html/`. CI builds the docs on every push and uploads as an `api-docs` artifact.
-- GitHub Actions CI: build matrix on Linux × {all-off, udp-auth, all-on}, asan+ubsan, `-Werror`, macOS-latest, ubuntu-24.04-arm, and the Doxygen build.
+- GitHub Actions CI: build matrix on Linux × {all-off, udp-auth, all-on}, asan+ubsan, `-Werror`, ubuntu-24.04-arm, and the Doxygen build.
 - `examples/swarm_benchmark/` + `scripts/run_swarm_benchmark.sh` — the v1.0 1000-entity perf gate. CSV stream + per-system breakdown + RSS snapshot per run.
 - `examples/spatial_index_benchmark/` — NeighbourTable lookup speedup demo (linear scan vs hash-grid query).
 - `scripts/run_full_qa.sh` — comprehensive build matrix + demo + profiling harness.

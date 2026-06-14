@@ -125,28 +125,6 @@ jobs:
         run: ./build/tests/mith_unit_tests
 
   # -------------------------------------------------------------------------
-  # macOS — verify Apple Clang. SERIAL stays OFF on macOS for now; the
-  # termios path works in theory but isn't validated on Darwin yet (open
-  # item alongside the Pi 4 / physical-serial validation in §16 v0.3).
-  # -------------------------------------------------------------------------
-  macos:
-    name: macos-clang
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Configure
-        run: >
-          cmake -B build -S .
-          -DCMAKE_BUILD_TYPE=Release
-          -DMITH_ENABLE_UDP=ON
-          -DMITH_ENABLE_AUTH=ON
-          -DMITH_ENABLE_SERIAL=OFF
-      - name: Build
-        run: cmake --build build -j $(sysctl -n hw.ncpu)
-      - name: Test
-        run: ./build/tests/mith_unit_tests
-
-  # -------------------------------------------------------------------------
   # ARM (aarch64) — closes the §15 platform-tier claim. Uses GitHub's
   # native ARM runners (free on public repos).
   # -------------------------------------------------------------------------

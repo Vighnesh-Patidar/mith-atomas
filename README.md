@@ -68,7 +68,7 @@ Test suite — verified across the build matrix:
 
 All green, including integration tests for SimBus-driven fault injection, the signed-mode rotation chain, the full-stack lifecycle, UDP multicast loopback, signed beacons end-to-end (with adversary spoofing rejection), serial transport via socketpair, the partition → heal merge path under fault injection, and the v0.3 1000-entity perf gate (run at N=500 for the rc1 baseline — 6.5 s median per tick on a 4-core i5-11260H, FlockingSystem inner loop at 0.003 ms/world thanks to the spatial index).
 
-CI runs the build matrix on Linux × {all-off, udp-auth, all-on}, asan+ubsan under Debug, `-Werror` under Release, macOS-latest with Apple Clang, and ubuntu-24.04-arm for the aarch64 platform tier. Doxygen build verified per push; HTML artifact uploaded for 14 days.
+CI runs the build matrix on Linux × {all-off, udp-auth, all-on}, asan+ubsan under Debug, `-Werror` under Release, and ubuntu-24.04-arm for the aarch64 platform tier. Doxygen build verified per push; HTML artifact uploaded for 14 days. (macOS isn't in the matrix — no robotics deployment target runs on Darwin and Apple Clang's diagnostics don't cover any platform we ship to.)
 
 Pre-v0.1 design phase: **9/9 questions resolved**. v1.0 software ledger: **41/43 items shipped** (the two open items are physical-hardware validation — see [`qa-report/`](qa-report/) for the full progress mapping).
 
