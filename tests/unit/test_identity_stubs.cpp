@@ -121,47 +121,5 @@ TEST_CASE("WorldConfig::identity_rotation_policy is user-settable") {
     CHECK(w.config().identity_rotation_policy == IdentityRotationPolicy::PERIODIC);
 }
 
-// ------------------------------------------------------------------------
-// World::rotate_identity() v0.1 stub — §3.4
-// ------------------------------------------------------------------------
-
-TEST_CASE("rotate_identity() is callable before init() — no-op stub") {
-    World w(WorldConfig{});
-    // Pre-init call: must not crash. No identity has been emplaced yet.
-    w.rotate_identity();
-    CHECK_FALSE(w.is_initialized());
-}
-
-TEST_CASE("rotate_identity() preserves the identity in v0.1 (no-op stub)") {
-    World w(WorldConfig{});
-    w.init();
-    const auto initial = w.identity();
-
-    w.rotate_identity();
-    CHECK(w.identity() == initial);
-
-    // Repeated calls also no-ops.
-    for (int i = 0; i < 5; ++i) w.rotate_identity();
-    CHECK(w.identity() == initial);
-}
-
-TEST_CASE("rotate_identity() is a no-op regardless of configured policy in v0.1") {
-    // Each policy should be a no-op in v0.1 — the stub doesn't dispatch
-    // on policy yet; that's v0.2 work.
-    constexpr IdentityRotationPolicy policies[] = {
-        IdentityRotationPolicy::PERMANENT,
-        IdentityRotationPolicy::PER_MISSION,
-        IdentityRotationPolicy::PERIODIC,
-        IdentityRotationPolicy::EVENT_DRIVEN,
-    };
-
-    for (const auto p : policies) {
-        WorldConfig cfg;
-        cfg.identity_rotation_policy = p;
-        World w(cfg);
-        w.init();
-        const auto before = w.identity();
-        w.rotate_identity();
-        CHECK(w.identity() == before);
-    }
-}
+// Behavioural tests for rotate_identity() moved to test_identity_rotation.cpp
+// in the v0.2 rotation slice — the v0.1 "no-op stub" contract is gone.

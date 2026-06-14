@@ -83,6 +83,12 @@ void World::init() {
     // the hazard DAG.
     (void) scheduler_.build_graph();
 
+#ifdef MITH_AUTH_ENABLED
+    // Signed mode: generate the initial keypair so the first rotation has
+    // a previous key to sign the continuity cert with.
+    current_keypair_ = generate_identity_keypair();
+#endif
+
     initialized_ = true;
 }
 
@@ -97,6 +103,14 @@ void World::tick() {
     ++context_.tick_count;
 
     scheduler_.tick(registry_, context_, context_.delta_time_s);
+
+    // PERIODIC identity rotation (§3.4). Other policies are explicit only.
+    if (config_.identity_rotation_policy == IdentityRotationPolicy::PERIODIC
+        && config_.identity_rotation_period_s > 0.0f
+        && context_.elapsed_time_s - last_rotation_time_s_
+               >= config_.identity_rotation_period_s) {
+        rotate_identity();
+    }
 }
 
 void World::run(std::atomic<bool>& stop_flag) {
@@ -158,14 +172,48 @@ void World::set_trace_sink(TraceSink* sink) noexcept {
 }
 
 void World::rotate_identity() noexcept {
-    // v0.1 stub. Effective policies (PER_MISSION, PERIODIC, EVENT_DRIVEN)
-    // land in v0.2 alongside cryptographic identity (§3.3, §3.4). Under
-    // PERMANENT — the only policy honoured in v0.1 — this is a no-op
-    // by design.
-    //
-    // The hook exists now so API consumers can write the EVENT_DRIVEN
-    // call shape today; it will become functional in v0.2 without
-    // breaking the call site.
+    if (!initialized_) {
+        detail::world_assert_fail("rotate_identity(): init() not called");
+    }
+
+    auto& id_comp = registry_.get<IdentityComponent>(registry_.self_id());
+    const HierarchicalID prev_id = id_comp.id;
+    const HierarchicalID new_id =
+        HierarchicalID::generate(config_.swarm_id);
+
+#ifdef MITH_AUTH_ENABLED
+    if (current_keypair_) {
+        // Sign continuity cert with the OLD private key (§3.4 PER_MISSION /
+        // PERIODIC continuity proof).
+        IdentityKeyPair next = generate_identity_keypair();
+
+        IdentityCertificate cert;
+        cert.prev_id     = prev_id;
+        cert.new_id      = new_id;
+        cert.new_key     = next.public_key;
+        cert.issued_at_s = context_.elapsed_time_s;
+
+        std::uint8_t payload[IDENTITY_CERT_PAYLOAD_LEN];
+        serialise_cert_payload(prev_id, new_id, next.public_key, payload);
+        cert.signature_by_prev = sign_payload(
+            current_keypair_->private_key, payload, IDENTITY_CERT_PAYLOAD_LEN);
+
+        last_cert_       = cert;
+        current_keypair_ = std::move(next);
+    }
+#endif
+
+    id_comp.id            = new_id;
+    last_rotation_time_s_ = context_.elapsed_time_s;
+    ++rotation_count_;
+}
+
+std::optional<IdentityCertificate> World::last_identity_certificate() const noexcept {
+    return last_cert_;
+}
+
+std::uint64_t World::identity_rotation_count() const noexcept {
+    return rotation_count_;
 }
 
 std::string World::dump_state() const {

@@ -25,6 +25,7 @@ option(MITH_ENABLE_AUTH    "Build cryptographic identity (Ed25519, signed mode)"
 add_library(mith STATIC
     src/identity/uuid.cpp
     src/identity/hierarchical_id.cpp
+    src/identity/identity_rotation.cpp
     src/core/registry.cpp
     src/core/scheduler.cpp
     src/core/json_writer.cpp

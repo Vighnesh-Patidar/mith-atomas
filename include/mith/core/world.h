@@ -32,10 +32,15 @@
 #include "mith/identity/hierarchical_id.h"
 #include "mith/identity/identity_rotation.h"
 
+#ifdef MITH_AUTH_ENABLED
+#include "mith/identity/ed25519.h"
+#endif
+
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
 
 namespace mith {
 
@@ -61,10 +66,14 @@ struct WorldConfig {
         ComponentRegistrationPolicy::LockAfterInit;
     SchedulerMode scheduler_mode = SchedulerMode::Sequential;
 
-    // Identity rotation policy per §3.4. v0.1 honours PERMANENT only;
-    // the other values' enforcement lands in v0.2 alongside signed mode.
+    // Identity rotation policy per §3.4. v0.2 honours PERMANENT, PERIODIC,
+    // and EVENT_DRIVEN; PER_MISSION deferred.
     IdentityRotationPolicy identity_rotation_policy =
         IdentityRotationPolicy::PERMANENT;
+
+    // PERIODIC rotation: rotate every N seconds of elapsed sim time.
+    // Ignored under PERMANENT / EVENT_DRIVEN.
+    float identity_rotation_period_s = 60.0f;
 };
 
 class World {
@@ -148,13 +157,25 @@ public:
     // scheduler) events. Pass nullptr to clear.
     void set_trace_sink(TraceSink* sink) noexcept;
 
-    // Rotate the robot's identity (§3.4). v0.1 ships this as a no-op
-    // stub — actual rotation under PER_MISSION / PERIODIC / EVENT_DRIVEN
-    // policies lands in v0.2 alongside the Ed25519 / IdentityCertificate
-    // work. Under PERMANENT (v0.1 default) this is a meaningful no-op
-    // by design; under the other policies it will perform the rotation
-    // dance once v0.2 wires it up.
+    // Rotate the robot's identity (§3.4). Generates a fresh UnitID and
+    // (in signed mode) a fresh Ed25519 keypair, then writes an
+    // IdentityCertificate signed by the PREVIOUS private key — neighbours
+    // can correlate the rotation chain across the swarm.
+    //
+    // Callable directly under any policy (EVENT_DRIVEN). Under PERIODIC,
+    // tick() invokes it automatically every identity_rotation_period_s.
+    // Under PERMANENT, the runtime never invokes it, but explicit calls
+    // still rotate.
+    //
+    // Aborts if init() hasn't been called (no IdentityComponent emplaced).
     void rotate_identity() noexcept;
+
+    // Returns the cert from the most recent rotation (signed mode only)
+    // or nullopt if no rotation has happened yet, or if running unsigned.
+    std::optional<IdentityCertificate> last_identity_certificate() const noexcept;
+
+    // Total identity rotations since init() — useful for tests and audit.
+    std::uint64_t identity_rotation_count() const noexcept;
 
     // Serialise the local runtime state to JSON (§14.1). Includes self-
     // entity component summary, NeighbourTable contents, scheduler tick
@@ -173,14 +194,20 @@ public:
     std::uint64_t fault_count() const noexcept;
 
 private:
-    WorldConfig                       config_;
-    EntityRegistry                    registry_;
-    SystemScheduler                   scheduler_;
-    SwarmContext                      context_{};
-    std::unique_ptr<TransportLayer>   transport_;
-    NeighbourTable                    neighbour_table_;
-    std::atomic<std::uint64_t>        fault_count_{0};   // §13.1 fault counter
-    bool                              initialized_ = false;
+    WorldConfig                          config_;
+    EntityRegistry                       registry_;
+    SystemScheduler                      scheduler_;
+    SwarmContext                         context_{};
+    std::unique_ptr<TransportLayer>      transport_;
+    NeighbourTable                       neighbour_table_;
+    std::atomic<std::uint64_t>           fault_count_{0};
+    std::uint64_t                        rotation_count_ = 0;
+    float                                last_rotation_time_s_ = 0.0f;
+    std::optional<IdentityCertificate>   last_cert_;
+#ifdef MITH_AUTH_ENABLED
+    std::optional<IdentityKeyPair>       current_keypair_;
+#endif
+    bool                                 initialized_ = false;
 };
 
 } // namespace mith
