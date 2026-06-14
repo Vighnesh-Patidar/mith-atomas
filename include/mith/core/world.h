@@ -26,6 +26,7 @@
 
 #include "mith/comms/message.h"
 #include "mith/comms/neighbour_table.h"
+#include "mith/comms/peer_key_registry.h"
 #include "mith/core/builtin_components.h"
 #include "mith/core/registry.h"
 #include "mith/core/scheduler.h"
@@ -194,6 +195,13 @@ public:
     void register_message_handler(MessageHandler h);
     const std::vector<MessageHandler>& message_handlers() const noexcept;
 
+    // Swarm-wide peer-key registry (§3.3 / §16 v0.3). DiscoverySystem
+    // populates from DISCOVERY_HELLO / DISCOVERY_WELCOME payloads;
+    // BeaconSystem consults + populates from signed-beacon traffic.
+    // Always present; only meaningful under MITH_AUTH_ENABLED.
+    PeerKeyRegistry&       peer_keys()       noexcept { return peer_keys_; }
+    const PeerKeyRegistry& peer_keys() const noexcept { return peer_keys_; }
+
     // Rotate the robot's identity (§3.4). Generates a fresh UnitID and
     // (in signed mode) a fresh Ed25519 keypair, then writes an
     // IdentityCertificate signed by the PREVIOUS private key — neighbours
@@ -252,6 +260,7 @@ private:
     float                                last_rotation_time_s_ = 0.0f;
     std::optional<IdentityCertificate>   last_cert_;
     std::vector<MessageHandler>          message_handlers_;
+    PeerKeyRegistry                      peer_keys_;
 #ifdef MITH_AUTH_ENABLED
     std::optional<IdentityKeyPair>       current_keypair_;
 #endif

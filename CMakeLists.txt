@@ -33,6 +33,7 @@ add_library(mith STATIC
     src/core/world.cpp
     src/comms/neighbour_table.cpp
     src/comms/beacon_system.cpp
+    src/comms/peer_key_registry.cpp
     src/comms/udp_wire.cpp
     src/systems/flocking_system.cpp
     src/systems/kinematics_system.cpp

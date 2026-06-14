@@ -355,6 +355,185 @@ TEST_CASE("DiscoverySystem: WELCOME responder works even after the responder is 
     CHECK(rec->sent_messages[0].type == mith::messages::DISCOVERY_WELCOME);
 }
 
+// ============================================================================
+// Signed-mode pubkey carriage — v0.3 (WELCOME pubkey slice)
+// ============================================================================
+
+#ifdef MITH_AUTH_ENABLED
+
+#include "mith/comms/peer_key_registry.h"
+#include "mith/identity/ed25519.h"
+
+TEST_CASE("DiscoverySystem: signed-mode HELLO embeds the sender's pubkey in payload[0..31]") {
+    World w(WorldConfig{}, std::make_unique<RecordingTransport>());
+    w.init();
+    auto* rec = static_cast<RecordingTransport*>(w.transport());
+
+    DiscoverySystem::Params p;
+    p.bootstrap_quorum    = 999;
+    p.bootstrap_timeout_s = 999.0f;
+    p.hello_period_s      = 0.1f;
+    DiscoverySystem ds(w, p);
+
+    ds.tick(w.registry(), w.context(), 0.1f);
+    REQUIRE(rec->sent_messages.size() == 1u);
+    const auto& hello = rec->sent_messages[0];
+    CHECK(hello.type == mith::messages::DISCOVERY_HELLO);
+
+    const auto kp = w.identity_keypair();
+    REQUIRE(kp.has_value());
+    for (std::size_t i = 0; i < mith::IdentityKey::PUBLIC_KEY_LEN; ++i) {
+        CHECK(hello.payload[i] == kp->public_key.public_key[i]);
+    }
+}
+
+TEST_CASE("DiscoverySystem: signed-mode WELCOME embeds the sender's pubkey") {
+    World w(WorldConfig{}, std::make_unique<RecordingTransport>());
+    w.init();
+    auto* rec = static_cast<RecordingTransport*>(w.transport());
+
+    DiscoverySystem::Params p;
+    p.hello_period_s = 0.0f;   // suppress outbound HELLOs
+    DiscoverySystem ds(w, p);
+    ds.tick(w.registry(), w.context(), 0.1f);
+
+    // Inbound HELLO from a peer triggers a WELCOME response.
+    mith::Message hello;
+    hello.sender = mith::HierarchicalID::generate(mith::SwarmID{1});
+    hello.type   = mith::messages::DISCOVERY_HELLO;
+    for (const auto& h : w.message_handlers()) {
+        if (h && h(hello)) break;
+    }
+    REQUIRE(rec->sent_messages.size() == 1u);
+    const auto& welcome = rec->sent_messages[0];
+    CHECK(welcome.type == mith::messages::DISCOVERY_WELCOME);
+
+    const auto kp = w.identity_keypair();
+    REQUIRE(kp.has_value());
+    for (std::size_t i = 0; i < mith::IdentityKey::PUBLIC_KEY_LEN; ++i) {
+        CHECK(welcome.payload[i] == kp->public_key.public_key[i]);
+    }
+}
+
+TEST_CASE("DiscoverySystem: signed-mode HELLO receipt pins sender's pubkey in PeerKeyRegistry") {
+    World w(WorldConfig{}, std::make_unique<RecordingTransport>());
+    w.init();
+
+    DiscoverySystem::Params p;
+    p.hello_period_s = 0.0f;
+    DiscoverySystem ds(w, p);
+    ds.tick(w.registry(), w.context(), 0.1f);
+
+    REQUIRE(w.peer_keys().size() == 0u);
+
+    // Synthesise a HELLO from a peer carrying their pubkey.
+    auto peer_kp = mith::generate_identity_keypair();
+    const auto peer_hid = mith::HierarchicalID::generate(mith::SwarmID{1});
+
+    mith::Message hello;
+    hello.sender = peer_hid;
+    hello.type   = mith::messages::DISCOVERY_HELLO;
+    for (std::size_t i = 0; i < mith::IdentityKey::PUBLIC_KEY_LEN; ++i) {
+        hello.payload[i] = peer_kp.public_key.public_key[i];
+    }
+
+    for (const auto& h : w.message_handlers()) {
+        if (h && h(hello)) break;
+    }
+
+    REQUIRE(w.peer_keys().size() == 1u);
+    const auto* pinned = w.peer_keys().find(peer_hid);
+    REQUIRE(pinned != nullptr);
+    CHECK(pinned->public_key == peer_kp.public_key.public_key);
+}
+
+TEST_CASE("DiscoverySystem: signed-mode WELCOME receipt pins sender's pubkey") {
+    World w(WorldConfig{}, std::make_unique<RecordingTransport>());
+    w.init();
+
+    DiscoverySystem ds(w);
+    ds.tick(w.registry(), w.context(), 0.1f);
+
+    auto peer_kp = mith::generate_identity_keypair();
+    const auto peer_hid = mith::HierarchicalID::generate(mith::SwarmID{1});
+
+    mith::Message welcome;
+    welcome.sender = peer_hid;
+    welcome.type   = mith::messages::DISCOVERY_WELCOME;
+    for (std::size_t i = 0; i < mith::IdentityKey::PUBLIC_KEY_LEN; ++i) {
+        welcome.payload[i] = peer_kp.public_key.public_key[i];
+    }
+
+    for (const auto& h : w.message_handlers()) {
+        if (h && h(welcome)) break;
+    }
+
+    const auto* pinned = w.peer_keys().find(peer_hid);
+    REQUIRE(pinned != nullptr);
+    CHECK(pinned->public_key == peer_kp.public_key.public_key);
+}
+
+TEST_CASE("DiscoverySystem: HELLO with all-zero payload (unsigned peer) does NOT create a pin") {
+    World w(WorldConfig{}, std::make_unique<RecordingTransport>());
+    w.init();
+    DiscoverySystem ds(w);
+    ds.tick(w.registry(), w.context(), 0.1f);
+
+    mith::Message hello;
+    hello.sender = mith::HierarchicalID::generate(mith::SwarmID{1});
+    hello.type   = mith::messages::DISCOVERY_HELLO;
+    // payload left all-zero — represents an unsigned-mode peer.
+
+    for (const auto& h : w.message_handlers()) {
+        if (h && h(hello)) break;
+    }
+    CHECK(w.peer_keys().size() == 0u);   // no pin for unsigned peers
+}
+
+TEST_CASE("DiscoverySystem: HELLO with adversary key for an already-pinned HID is silently ignored") {
+    // Once a pin exists (e.g. from an earlier WELCOME), a later HELLO
+    // from an adversary claiming the same HID with a different pubkey
+    // does NOT overwrite the pin. DiscoverySystem doesn't bump any
+    // rejection counter — that's BeaconSystem's job when the adversary
+    // tries to actually send a beacon — but the pin survives intact.
+    World w(WorldConfig{}, std::make_unique<RecordingTransport>());
+    w.init();
+    DiscoverySystem ds(w);
+    ds.tick(w.registry(), w.context(), 0.1f);
+
+    const auto peer_hid    = mith::HierarchicalID::generate(mith::SwarmID{1});
+    const auto real_kp     = mith::generate_identity_keypair();
+    const auto attacker_kp = mith::generate_identity_keypair();
+
+    // First pin: real key.
+    mith::Message welcome;
+    welcome.sender = peer_hid;
+    welcome.type   = mith::messages::DISCOVERY_WELCOME;
+    for (std::size_t i = 0; i < mith::IdentityKey::PUBLIC_KEY_LEN; ++i) {
+        welcome.payload[i] = real_kp.public_key.public_key[i];
+    }
+    for (const auto& h : w.message_handlers()) {
+        if (h && h(welcome)) break;
+    }
+    REQUIRE(w.peer_keys().find(peer_hid)->public_key == real_kp.public_key.public_key);
+
+    // Attacker HELLO claiming the same HID with a different key.
+    mith::Message hello;
+    hello.sender = peer_hid;
+    hello.type   = mith::messages::DISCOVERY_HELLO;
+    for (std::size_t i = 0; i < mith::IdentityKey::PUBLIC_KEY_LEN; ++i) {
+        hello.payload[i] = attacker_kp.public_key.public_key[i];
+    }
+    for (const auto& h : w.message_handlers()) {
+        if (h && h(hello)) break;
+    }
+
+    // Pin still holds the real key.
+    CHECK(w.peer_keys().find(peer_hid)->public_key == real_kp.public_key.public_key);
+}
+
+#endif // MITH_AUTH_ENABLED
+
 TEST_CASE("DiscoverySystem: deterministic — identical peer schedule → identical transition tick") {
     auto run = []() {
         World w(WorldConfig{});

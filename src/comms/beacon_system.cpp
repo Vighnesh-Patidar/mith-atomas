@@ -124,14 +124,10 @@ void BeaconSystem::tick(EntityRegistry& registry,
                     ++rejected_beacons_;
                     continue;
                 }
-                // TOFU pin: first sighting wins; mismatch on later
-                // sightings is a rejection.
-                auto it = tofu_keys_.find(b.id);
-                if (it == tofu_keys_.end()) {
-                    tofu_keys_.emplace(b.id, b.sender_pubkey);
-                } else if (std::memcmp(it->second.public_key.data(),
-                                        b.sender_pubkey.public_key.data(),
-                                        IdentityKey::PUBLIC_KEY_LEN) != 0) {
+                // TOFU pin via World::peer_keys() — first sighting wins
+                // (potentially already pinned by DiscoverySystem from a
+                // HELLO/WELCOME). Mismatch on later sightings rejects.
+                if (!world_->peer_keys().try_pin(b.id, b.sender_pubkey)) {
                     ++rejected_beacons_;
                     continue;
                 }

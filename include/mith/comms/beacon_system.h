@@ -15,11 +15,8 @@
 // each tick but skips send/poll (no-op transport path).
 
 #include "mith/core/system.h"
-#include "mith/identity/hierarchical_id.h"
-#include "mith/identity/identity_auth.h"
 
 #include <cstdint>
-#include <map>
 
 namespace mith {
 
@@ -51,10 +48,9 @@ private:
     float             neighbour_timeout_s_;
     float             time_since_last_beacon_s_ = 0.0f;
 
-    // Trust-on-first-use cache: the first pubkey we see for each HID is
-    // pinned. Subsequent beacons claiming the same HID must carry the
-    // same pubkey or they're rejected.
-    std::map<HierarchicalID, IdentityKey> tofu_keys_;
+    // Per-system observability counter — the TOFU pin/lookup itself
+    // lives on World::peer_keys() so DiscoverySystem can pre-populate
+    // it from DISCOVERY_HELLO / DISCOVERY_WELCOME.
     std::uint64_t rejected_beacons_ = 0;
 };
 
