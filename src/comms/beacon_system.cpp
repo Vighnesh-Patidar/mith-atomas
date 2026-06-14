@@ -3,10 +3,16 @@
 #include "mith/comms/neighbour_table.h"
 #include "mith/comms/state_vector.h"
 #include "mith/comms/transport.h"
+#include "mith/comms/udp_wire.h"
 #include "mith/core/builtin_components.h"
 #include "mith/core/registry.h"
 #include "mith/core/world.h"
 
+#ifdef MITH_AUTH_ENABLED
+#include "mith/identity/ed25519.h"
+#endif
+
+#include <cstring>
 #include <utility>
 #include <vector>
 
@@ -67,22 +73,70 @@ void BeaconSystem::tick(EntityRegistry& registry,
     sv.tick      = static_cast<std::uint32_t>(ctx.tick_count);
 
     // 2. Send beacon if the beacon period has elapsed and the beacon
-    //    channel exists + supports it.
+    //    channel exists + supports it. In signed mode, sign over the
+    //    87-byte canonical prefix (everything except the signature
+    //    field itself) using the current keypair from World.
     time_since_last_beacon_s_ += delta_time;
     if (beacon_period_s_ > 0.0f
         && time_since_last_beacon_s_ >= beacon_period_s_
         && beacon_transport_
         && beacon_transport_->supports_beacons()) {
+#ifdef MITH_AUTH_ENABLED
+        if (auto kp = world_->identity_keypair()) {
+            sv.sender_pubkey = kp->public_key;
+            std::uint8_t signed_bytes[udp_wire::BEACON_SIGNED_PREFIX_BYTES];
+            udp_wire::serialise_beacon_signed_payload(
+                sv, signed_bytes, sizeof signed_bytes);
+            sv.signature = sign_payload(
+                kp->private_key, signed_bytes, sizeof signed_bytes);
+        }
+#endif
         beacon_transport_->send_beacon(sv);
         time_since_last_beacon_s_ = 0.0f;
     }
 
-    // 3. Drain inbound beacons (beacon channel).
+    // 3. Drain inbound beacons (beacon channel). Signed mode applies
+    //    Ed25519 verification + TOFU per HID: the first pubkey we see
+    //    for a given HID is pinned; later beacons must match or they
+    //    bump rejected_beacons_ and skip the NeighbourTable upsert.
+    //    Unsigned mode (or beacons with an all-zero pubkey, e.g. from a
+    //    legacy peer) bypasses verification.
     if (beacon_transport_ && beacon_transport_->supports_beacons()) {
         std::vector<StateVector> beacons;
         beacon_transport_->poll_beacons(beacons);
         for (const auto& b : beacons) {
             if (b.id == sv.id) continue;          // skip our own echo
+
+#ifdef MITH_AUTH_ENABLED
+            // A non-zero pubkey indicates the sender intends signed
+            // mode. Apply both signature verification + TOFU pin.
+            bool pubkey_present = false;
+            for (auto byte : b.sender_pubkey.public_key) {
+                if (byte != 0u) { pubkey_present = true; break; }
+            }
+            if (pubkey_present) {
+                std::uint8_t signed_bytes[udp_wire::BEACON_SIGNED_PREFIX_BYTES];
+                udp_wire::serialise_beacon_signed_payload(
+                    b, signed_bytes, sizeof signed_bytes);
+                if (!verify_signature(b.sender_pubkey,
+                                       signed_bytes, sizeof signed_bytes,
+                                       b.signature.data(), b.signature.size())) {
+                    ++rejected_beacons_;
+                    continue;
+                }
+                // TOFU pin: first sighting wins; mismatch on later
+                // sightings is a rejection.
+                auto it = tofu_keys_.find(b.id);
+                if (it == tofu_keys_.end()) {
+                    tofu_keys_.emplace(b.id, b.sender_pubkey);
+                } else if (std::memcmp(it->second.public_key.data(),
+                                        b.sender_pubkey.public_key.data(),
+                                        IdentityKey::PUBLIC_KEY_LEN) != 0) {
+                    ++rejected_beacons_;
+                    continue;
+                }
+            }
+#endif
             neighbour_table_->upsert(b, ctx.elapsed_time_s);
         }
     }

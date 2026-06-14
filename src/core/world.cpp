@@ -240,6 +240,12 @@ std::optional<IdentityCertificate> World::last_identity_certificate() const noex
     return last_cert_;
 }
 
+#ifdef MITH_AUTH_ENABLED
+std::optional<IdentityKeyPair> World::identity_keypair() const noexcept {
+    return current_keypair_;
+}
+#endif
+
 void World::register_message_handler(MessageHandler h) {
     message_handlers_.push_back(std::move(h));
 }

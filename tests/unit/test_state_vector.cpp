@@ -49,8 +49,8 @@ TEST_CASE("StateVector is trivially copyable / movable") {
 }
 
 TEST_CASE("StateVector size is reasonable for a beacon payload") {
-    // §7.2 docs say "~80 bytes"; actual layout depends on padding but
-    // should be well under 100 bytes — fits in a UDP datagram with
-    // headers.
-    static_assert(sizeof(StateVector) <= 100u);
+    // §7.2 docs target ~150 bytes once the v0.3 sender_pubkey (32) +
+    // signature (64) are accounted for. With padding this stays well
+    // under 200 bytes — fits in a single UDP datagram with headers.
+    static_assert(sizeof(StateVector) <= 200u);
 }

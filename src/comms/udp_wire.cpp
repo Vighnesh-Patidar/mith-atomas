@@ -56,15 +56,12 @@ HierarchicalID get_hid(const std::uint8_t* p) noexcept {
 
 } // namespace
 
-std::size_t encode_beacon(const StateVector& sv,
-                          std::uint8_t* out, std::size_t cap) noexcept {
-    const std::size_t frame_len = FRAME_HEADER_BYTES + BEACON_PAYLOAD_BYTES;
-    if (cap < frame_len) return 0;
+std::size_t serialise_beacon_signed_payload(const StateVector& sv,
+                                             std::uint8_t* out,
+                                             std::size_t cap) noexcept {
+    if (cap < BEACON_SIGNED_PREFIX_BYTES) return 0;
 
-    out[0] = TAG_BEACON;
-    put_u32(out + 1, static_cast<std::uint32_t>(BEACON_PAYLOAD_BYTES));
-
-    std::uint8_t* p = out + FRAME_HEADER_BYTES;
+    std::uint8_t* p = out;
     put_hid(p, sv.id);                      p += 18;
     put_f32(p, sv.position.x);              p += 4;
     put_f32(p, sv.position.y);              p += 4;
@@ -76,6 +73,25 @@ std::size_t encode_beacon(const StateVector& sv,
     put_u32(p, sv.role.role);               p += 4;
     put_u32(p, sv.state.state);             p += 4;
     put_u32(p, sv.tick);                    p += 4;
+    std::memcpy(p, sv.sender_pubkey.public_key.data(), 32);
+    return BEACON_SIGNED_PREFIX_BYTES;
+}
+
+std::size_t encode_beacon(const StateVector& sv,
+                          std::uint8_t* out, std::size_t cap) noexcept {
+    const std::size_t frame_len = FRAME_HEADER_BYTES + BEACON_PAYLOAD_BYTES;
+    if (cap < frame_len) return 0;
+
+    out[0] = TAG_BEACON;
+    put_u32(out + 1, static_cast<std::uint32_t>(BEACON_PAYLOAD_BYTES));
+
+    // First 87 bytes of payload: serialise_beacon_signed_payload covers
+    // everything except the trailing 64-byte signature.
+    serialise_beacon_signed_payload(sv, out + FRAME_HEADER_BYTES,
+                                     BEACON_SIGNED_PREFIX_BYTES);
+    // Trailing 64 bytes: signature (zero-filled in unsigned mode).
+    std::memcpy(out + FRAME_HEADER_BYTES + BEACON_SIGNED_PREFIX_BYTES,
+                sv.signature.data(), IdentityKey::SIGNATURE_LEN);
     return frame_len;
 }
 
@@ -116,7 +132,9 @@ std::optional<StateVector> decode_beacon(const std::uint8_t* in,
     sv.health.value  = *p++;
     sv.role.role     = get_u32(p);          p += 4;
     sv.state.state   = get_u32(p);          p += 4;
-    sv.tick          = get_u32(p);
+    sv.tick          = get_u32(p);          p += 4;
+    std::memcpy(sv.sender_pubkey.public_key.data(), p, 32);     p += 32;
+    std::memcpy(sv.signature.data(), p, IdentityKey::SIGNATURE_LEN);
     return sv;
 }
 

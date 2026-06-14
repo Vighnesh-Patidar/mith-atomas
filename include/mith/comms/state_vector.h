@@ -14,11 +14,20 @@
 
 #include "mith/core/builtin_components.h"
 #include "mith/identity/hierarchical_id.h"
+#include "mith/identity/identity_auth.h"
 
+#include <array>
 #include <cstdint>
 
 namespace mith {
 
+// Beacon payload (§7.2). Always carries the sender's public key and a
+// signature slot regardless of build mode — uniform layout keeps SimBus
+// + UDP transport interchangeable. In unsigned-mode builds and when
+// running the unsigned beacon path, both fields are zero-filled and
+// receivers skip verification. In signed mode (MITH_AUTH_ENABLED + a
+// keypair on the sender) the fields are populated by BeaconSystem
+// before send, and verified on receive against a TOFU per-HID cache.
 struct StateVector {
     HierarchicalID          id;
     PositionComponent       position;
@@ -26,7 +35,9 @@ struct StateVector {
     HealthComponent         health;
     RoleComponent           role;
     BehaviourStateComponent state;
-    std::uint32_t           tick = 0;     // sender's tick at emit time
+    std::uint32_t           tick = 0;
+    IdentityKey             sender_pubkey{};
+    std::array<std::uint8_t, IdentityKey::SIGNATURE_LEN> signature{};
 };
 
 } // namespace mith

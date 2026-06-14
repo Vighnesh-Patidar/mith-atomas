@@ -211,6 +211,14 @@ public:
     // or nullopt if no rotation has happened yet, or if running unsigned.
     std::optional<IdentityCertificate> last_identity_certificate() const noexcept;
 
+#ifdef MITH_AUTH_ENABLED
+    // The robot's current identity keypair. Populated by init() in
+    // signed-mode builds. Used by BeaconSystem to sign outgoing beacons
+    // and by mission code that wants to attach signatures to its own
+    // packets. Returns nullopt before init() or in unsigned-mode builds.
+    std::optional<IdentityKeyPair> identity_keypair() const noexcept;
+#endif
+
     // Total identity rotations since init() — useful for tests and audit.
     std::uint64_t identity_rotation_count() const noexcept;
 
